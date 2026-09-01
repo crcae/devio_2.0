@@ -13,18 +13,31 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Document, Payment, Progress, Unit, User } from '../types';
 import {
   BubbleApiError,
-  fetchPropertyDocuments,
-  fetchPropertyPayments,
-  fetchPropertyProgress,
-  fetchUserProperties,
+  fetchRawDocuments,
+  fetchRawInstallments,
+  fetchRawPayments,
+  fetchRawProgress,
+  fetchRawProjects,
+  fetchRawUnits,
   login as bubbleLogin,
   updateUserPushToken,
 } from '../services/bubbleApi';
+import {
+  adaptBubbleDocuments,
+  adaptBubbleInstallments,
+  adaptBubblePayments,
+  adaptBubbleProgress,
+  adaptBubbleProperties,
+  type AdaptedExecutedPayment,
+  type AdaptedProgressUpdate,
+} from '../services/bubbleAdapter';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import {
   MOCK_DOCUMENTS,
+  MOCK_EXECUTED_PAYMENTS,
   MOCK_PAYMENTS,
   MOCK_PROGRESS,
+  MOCK_PROGRESS_HISTORY,
   MOCK_PROPERTIES,
   MOCK_USER,
 } from '../services/mockData';
@@ -40,6 +53,8 @@ interface AppContextValue {
   payments: Payment[];
   progress: Progress[];
   documents: Document[];
+  executedPayments: AdaptedExecutedPayment[];
+  progressHistory: AdaptedProgressUpdate[];
   isAuthenticated: boolean;
   isDemoMode: boolean;
   isRestoringSession: boolean;
@@ -63,6 +78,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [progress, setProgress] = useState<Progress[]>([]);
   const [documents, setDocuments] = useState<Document[]>([]);
+  const [executedPayments, setExecutedPayments] = useState<AdaptedExecutedPayment[]>([]);
+  const [progressHistory, setProgressHistory] = useState<AdaptedProgressUpdate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   const [usedMockFallback, setUsedMockFallback] = useState(false);
@@ -98,7 +115,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setBusy(1);
       try {
-        const properties = await fetchUserProperties(userId);
+        const [rawUnits, rawProjects] = await Promise.all([
+          fetchRawUnits(userId),
+          fetchRawProjects(),
+        ]);
+        const properties = adaptBubbleProperties(rawUnits, rawProjects);
         if (properties.length > 0) {
           setUserProperties(properties);
           setSelectedPropertyState((current) => current ?? properties[0] ?? null);
@@ -123,19 +144,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (unitId: string) => {
       if (USE_MOCK_DATA) {
         setPayments(MOCK_PAYMENTS);
+        setExecutedPayments(MOCK_EXECUTED_PAYMENTS);
         return;
       }
       setBusy(1);
       try {
-        const data = await fetchPropertyPayments(unitId);
-        if (data.length > 0) {
-          setPayments(data);
-          return;
+        const [rawInstallments, rawPagos] = await Promise.all([
+          fetchRawInstallments(unitId),
+          fetchRawPayments(unitId),
+        ]);
+        const installments = adaptBubbleInstallments(rawInstallments);
+        const executed = adaptBubblePayments(rawPagos);
+        setPayments(installments.length > 0 ? installments : MOCK_PAYMENTS);
+        setExecutedPayments(executed.length > 0 ? executed : MOCK_EXECUTED_PAYMENTS);
+        if (installments.length === 0 || executed.length === 0) {
+          setUsedMockFallback(true);
         }
-        setPayments(MOCK_PAYMENTS);
-        setUsedMockFallback(true);
       } catch (error) {
         setPayments(MOCK_PAYMENTS);
+        setExecutedPayments(MOCK_EXECUTED_PAYMENTS);
         setUsedMockFallback(true);
         showDiagnostic(error);
       } finally {
@@ -149,19 +176,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (unitId: string) => {
       if (USE_MOCK_DATA) {
         setProgress(MOCK_PROGRESS);
+        setProgressHistory(MOCK_PROGRESS_HISTORY);
         return;
       }
       setBusy(1);
       try {
-        const data = await fetchPropertyProgress(unitId);
-        if (data.length > 0) {
-          setProgress(data);
-          return;
+        const rawUpdates = await fetchRawProgress(unitId);
+        const { specialties, history } = adaptBubbleProgress(rawUpdates);
+        setProgress(specialties.length > 0 ? specialties : MOCK_PROGRESS);
+        setProgressHistory(history.length > 0 ? history : MOCK_PROGRESS_HISTORY);
+        if (history.length === 0) {
+          setUsedMockFallback(true);
         }
-        setProgress(MOCK_PROGRESS);
-        setUsedMockFallback(true);
       } catch (error) {
         setProgress(MOCK_PROGRESS);
+        setProgressHistory(MOCK_PROGRESS_HISTORY);
         setUsedMockFallback(true);
         showDiagnostic(error);
       } finally {
@@ -179,9 +208,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       setBusy(1);
       try {
-        const data = await fetchPropertyDocuments(unitId);
-        if (data.length > 0) {
-          setDocuments(data);
+        const rawDocs = await fetchRawDocuments(unitId);
+        const docs = adaptBubbleDocuments(rawDocs);
+        if (docs.length > 0) {
+          setDocuments(docs);
           return;
         }
         setDocuments(MOCK_DOCUMENTS);
@@ -244,6 +274,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setPayments([]);
     setProgress([]);
     setDocuments([]);
+    setExecutedPayments([]);
+    setProgressHistory([]);
     setUsedMockFallback(false);
   }, []);
 
@@ -294,6 +326,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       payments,
       progress,
       documents,
+      executedPayments,
+      progressHistory,
       isAuthenticated,
       isDemoMode,
       isRestoringSession,
@@ -314,6 +348,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       payments,
       progress,
       documents,
+      executedPayments,
+      progressHistory,
       isAuthenticated,
       isDemoMode,
       isRestoringSession,

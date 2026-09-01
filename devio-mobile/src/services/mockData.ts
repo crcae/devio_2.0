@@ -1,4 +1,6 @@
 import type { Document, Payment, Progress, Unit, User } from '../types';
+import { COLORS } from '../constants/theme';
+import type { AdaptedExecutedPayment, AdaptedProgressUpdate } from './bubbleAdapter';
 
 export const MOCK_USER: User = {
   _id: 'mock-user-001',
@@ -144,3 +146,46 @@ export const MOCK_PAYMENT_CONCEPTS: Record<string, string> = {
   'mock-pay-3': 'Pago 3 - Mensualidad',
   'mock-pay-4': 'Pago 4 - Mensualidad',
 };
+
+export const MOCK_EXECUTED_PAYMENTS: AdaptedExecutedPayment[] = [
+  { id: 'mock-x1', date: '21 Ago 26', method: 'Transferencia', amount: 300000 },
+  { id: 'mock-x2', date: '15 Mar 26', method: 'Transferencia', amount: 612500 },
+];
+
+export const MOCK_PROGRESS_HISTORY: AdaptedProgressUpdate[] = [
+  {
+    id: 'hist-1',
+    title: 'Primer Avance',
+    date: 'Agosto 10, 2026',
+    dateShort: '8/10/26',
+    overall: 21,
+    parts: [
+      { id: 'h1p1', name: 'Cimentación', percentage: 4 },
+      { id: 'h1p2', name: 'Estructura', percentage: 10 },
+      { id: 'h1p3', name: 'Instalaciones', percentage: 10 },
+      { id: 'h1p4', name: 'Acabados', percentage: 23 },
+    ],
+    photos: [
+      { id: 'h1-ph-1', tone: COLORS.primary },
+      { id: 'h1-ph-2', tone: '#274565' },
+      { id: 'h1-ph-3', tone: '#314F6E' },
+    ],
+  },
+  {
+    id: 'hist-2',
+    title: 'Segundo Avance',
+    date: 'Septiembre 15, 2026',
+    dateShort: '9/15/26',
+    overall: 45,
+    parts: [
+      { id: 'h2p1', name: 'Cimentación', percentage: 45 },
+      { id: 'h2p2', name: 'Estructura', percentage: 30 },
+      { id: 'h2p3', name: 'Instalaciones', percentage: 25 },
+      { id: 'h2p4', name: 'Acabados', percentage: 12 },
+    ],
+    photos: [
+      { id: 'h2-ph-1', tone: '#3A5A7C' },
+      { id: 'h2-ph-2', tone: COLORS.primary },
+    ],
+  },
+];

@@ -60,7 +60,7 @@ function formatShortDate(iso: string): string {
 }
 
 export default function PagosScreen({ navigation }: Props) {
-  const { selectedProperty, payments, loadPayments, dataLoading } = useApp();
+  const { selectedProperty, payments, executedPayments: contextExecutedPayments, loadPayments, dataLoading } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>('estado');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -117,6 +117,9 @@ export default function PagosScreen({ navigation }: Props) {
   }, [payments, unitPrefix]);
 
   const executedPayments: ExecutedPayment[] = useMemo(() => {
+    if (contextExecutedPayments.length > 0) {
+      return contextExecutedPayments;
+    }
     if (payments.length === 0) {
       return [
         { id: 'mock-x1', date: '21 Ago 26', method: 'Transferencia', amount: 300000 },
@@ -131,7 +134,7 @@ export default function PagosScreen({ navigation }: Props) {
         method: 'Transferencia',
         amount: p.paidAmount || p.amount,
       }));
-  }, [payments]);
+  }, [contextExecutedPayments, payments]);
 
   const isExpanded = (id: string) => expandedIds.has(id);
   const toggleExpanded = (id: string) => {

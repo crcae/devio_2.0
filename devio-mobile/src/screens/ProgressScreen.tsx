@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -25,32 +26,16 @@ import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import type { Progress } from '../types';
 import type { RootStackParamList } from '../navigation/types';
+import type { AdaptedProgressUpdate } from '../services/bubbleAdapter';
+import { MOCK_PROGRESS_HISTORY } from '../services/mockData';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Progress'>;
 
-interface PartRow {
+interface SpecialtyRow {
   id: string;
   name: string;
   percentage: number;
-}
-
-interface UpdatePhoto {
-  id: string;
-  tone: string;
-}
-
-interface HistoryUpdate {
-  id: string;
-  title: string;
-  date: string;
-  dateShort: string;
-  overall: number;
-  parts: PartRow[];
-  photos: UpdatePhoto[];
-}
-
-interface SpecialtyRow extends PartRow {
   icon: typeof Wrench;
 }
 
@@ -67,44 +52,6 @@ const MOCK_SPECIALTIES: SpecialtyRow[] = SPECIALTY_DEFS.map((def, index) => ({
   percentage: 0,
   icon: def.icon,
 }));
-
-const MOCK_HISTORY: HistoryUpdate[] = [
-  {
-    id: 'hist-1',
-    title: 'Primer Avance',
-    date: 'Agosto 10, 2026',
-    dateShort: '8/10/26',
-    overall: 21,
-    parts: [
-      { id: 'h1p1', name: 'Cimentación', percentage: 4 },
-      { id: 'h1p2', name: 'Estructura', percentage: 10 },
-      { id: 'h1p3', name: 'Instalaciones', percentage: 10 },
-      { id: 'h1p4', name: 'Acabados', percentage: 23 },
-    ],
-    photos: [
-      { id: 'h1-ph-1', tone: COLORS.primary },
-      { id: 'h1-ph-2', tone: '#274565' },
-      { id: 'h1-ph-3', tone: '#314F6E' },
-    ],
-  },
-  {
-    id: 'hist-2',
-    title: 'Segundo Avance',
-    date: 'Septiembre 15, 2026',
-    dateShort: '9/15/26',
-    overall: 45,
-    parts: [
-      { id: 'h2p1', name: 'Cimentación', percentage: 45 },
-      { id: 'h2p2', name: 'Estructura', percentage: 30 },
-      { id: 'h2p3', name: 'Instalaciones', percentage: 25 },
-      { id: 'h2p4', name: 'Acabados', percentage: 12 },
-    ],
-    photos: [
-      { id: 'h2-ph-1', tone: '#3A5A7C' },
-      { id: 'h2-ph-2', tone: COLORS.primary },
-    ],
-  },
-];
 
 function formatDeliveryDate(iso: string): string {
   if (!iso) return 'May 15, 2028';
@@ -153,11 +100,13 @@ function ProgressRing({ percentage }: { percentage: number }) {
 }
 
 export default function ProgressScreen({ navigation }: Props) {
-  const { selectedProperty, progress, loadProgress, dataLoading } = useApp();
+  const { selectedProperty, progress, progressHistory, loadProgress, dataLoading } = useApp();
   const [refreshing, setRefreshing] = useState(false);
-  const [activeUpdate, setActiveUpdate] = useState<HistoryUpdate | null>(null);
-  const [lightboxPhotos, setLightboxPhotos] = useState<UpdatePhoto[] | null>(null);
+  const [activeUpdate, setActiveUpdate] = useState<AdaptedProgressUpdate | null>(null);
+  const [lightboxPhotos, setLightboxPhotos] = useState<AdaptedProgressUpdate['photos'] | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  const historyList = progressHistory.length > 0 ? progressHistory : MOCK_PROGRESS_HISTORY;
 
   const unitId = selectedProperty?._id ?? '';
   const showOverlay = dataLoading && progress.length === 0;
@@ -314,7 +263,7 @@ export default function ProgressScreen({ navigation }: Props) {
 
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>Histórico Avances de Obra</Text>
-            {MOCK_HISTORY.map((update) => (
+            {historyList.map((update) => (
               <Pressable
                 key={update.id}
                 style={({ pressed }) => [styles.historyCard, pressed && styles.pressed]}
@@ -371,13 +320,24 @@ export default function ProgressScreen({ navigation }: Props) {
                 {activeUpdate.photos.map((photo, index) => (
                   <Pressable
                     key={photo.id}
-                    style={[styles.modalPhoto, { backgroundColor: photo.tone }]}
+                    style={styles.modalPhoto}
                     onPress={() => {
                       setLightboxPhotos(activeUpdate.photos);
                       setLightboxIndex(index);
                     }}
                   >
-                    <Camera size={30} color={COLORS.gold} strokeWidth={1.6} />
+                    {photo.url ? (
+                      <Image source={{ uri: photo.url }} style={styles.modalPhotoImage} resizeMode="cover" />
+                    ) : (
+                      <View
+                        style={[
+                          styles.modalPhotoTone,
+                          { backgroundColor: photo.tone ?? COLORS.primary },
+                        ]}
+                      >
+                        <Camera size={30} color={COLORS.gold} strokeWidth={1.6} />
+                      </View>
+                    )}
                   </Pressable>
                 ))}
               </ScrollView>
@@ -434,8 +394,19 @@ export default function ProgressScreen({ navigation }: Props) {
               contentOffset={{ x: lightboxIndex * 360, y: 0 }}
             >
               {lightboxPhotos.map((photo) => (
-                <View key={photo.id} style={[styles.lightboxSlide, { backgroundColor: photo.tone }]}>
-                  <Camera size={80} color={COLORS.gold} strokeWidth={1} />
+                <View key={photo.id} style={styles.lightboxSlide}>
+                  {photo.url ? (
+                    <Image source={{ uri: photo.url }} style={styles.lightboxImage} resizeMode="contain" />
+                  ) : (
+                    <View
+                      style={[
+                        styles.lightboxFill,
+                        { backgroundColor: photo.tone ?? COLORS.primary },
+                      ]}
+                    >
+                      <Camera size={80} color={COLORS.gold} strokeWidth={1} />
+                    </View>
+                  )}
                 </View>
               ))}
             </ScrollView>
@@ -756,6 +727,14 @@ const styles = StyleSheet.create({
     height: 96,
     borderRadius: RADIUS.md,
     marginRight: SPACING.sm,
+    overflow: 'hidden',
+  },
+  modalPhotoImage: {
+    width: '100%',
+    height: '100%',
+  },
+  modalPhotoTone: {
+    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -818,6 +797,16 @@ const styles = StyleSheet.create({
   },
   lightboxSlide: {
     width: 360,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lightboxImage: {
+    width: '100%',
+    height: '100%',
+  },
+  lightboxFill: {
+    width: '100%',
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
