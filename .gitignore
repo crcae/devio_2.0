@@ -2,3 +2,5 @@ node_modules/
 .expo/
 .DS_Store
 *.log
+devio-mobile/node_modules/
+devio-mobile/.expo/
