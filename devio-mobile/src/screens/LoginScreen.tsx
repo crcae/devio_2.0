@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Pressable,
   StyleSheet,
   Switch,
@@ -9,7 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Eye, EyeOff, FlaskConical } from 'lucide-react-native';
+import { Eye, EyeOff, FlaskConical, Lock, Mail } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import EnvBadge from '../components/EnvBadge';
@@ -17,12 +18,14 @@ import EnvBadge from '../components/EnvBadge';
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
-  const { login, isLoading, isDemoMode } = useApp();
+  const { login, isLoading: isAuthenticating, isDemoMode } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [mockEnabled, setMockEnabled] = useState(isDemoMode);
   const [showPassword, setShowPassword] = useState(false);
+  const [emailFocused, setEmailFocused] = useState(false);
+  const [passwordFocused, setPasswordFocused] = useState(false);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -41,43 +44,59 @@ export default function LoginScreen() {
     }
   };
 
+  const handleForgotPassword = () => {
+    Alert.alert(
+      'Recuperar contraseña',
+      'Por motivos de seguridad, para recuperar tu contraseña comunícate directamente con tu asesor DEVIO o a soporte@deviomx.com',
+      [{ text: 'Entendido' }],
+    );
+  };
+
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.branding}>
         <View style={styles.brandRow}>
+          <View style={styles.brandSpacer} />
           <Text style={styles.logo}>DEVIO</Text>
-          <EnvBadge />
+          <View style={styles.badgeWrap}>
+            <EnvBadge />
+          </View>
         </View>
-        <Text style={styles.heading}>Accede a tu inversión</Text>
-        <Text style={styles.subtitle}>Consulta el progreso de tu propiedad</Text>
-        {mockEnabled ? (
-          <Text style={styles.demoHint}>Modo pruebas activo: cualquier credencial es aceptada.</Text>
-        ) : null}
+        <Text style={styles.heading}>Bienvenido a DEVIO</Text>
+        <Text style={styles.subtitle}>Ingresa con los accesos proporcionados por tu asesor</Text>
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Iniciar Sesión</Text>
+        <Text style={styles.cardTitle}>Acceso Inversionistas</Text>
 
         <Text style={styles.label}>Email</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="usuario@email.com"
-          placeholderTextColor={COLORS.textSecondary}
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-          autoCorrect={false}
-        />
+        <View style={[styles.field, emailFocused && styles.fieldFocused]}>
+          <Mail size={20} color={emailFocused ? COLORS.gold : COLORS.textSecondary} strokeWidth={2} />
+          <TextInput
+            style={styles.fieldInput}
+            placeholder="ejemplo@dominio.com"
+            placeholderTextColor={COLORS.textSecondary}
+            value={email}
+            onChangeText={setEmail}
+            onFocus={() => setEmailFocused(true)}
+            onBlur={() => setEmailFocused(false)}
+            autoCapitalize="none"
+            keyboardType="email-address"
+            autoCorrect={false}
+          />
+        </View>
 
         <Text style={styles.label}>Contraseña</Text>
-        <View style={styles.passwordWrap}>
+        <View style={[styles.field, passwordFocused && styles.fieldFocused]}>
+          <Lock size={20} color={passwordFocused ? COLORS.gold : COLORS.textSecondary} strokeWidth={2} />
           <TextInput
-            style={styles.passwordInput}
-            placeholder="********"
+            style={styles.fieldInput}
+            placeholder="••••••••"
             placeholderTextColor={COLORS.textSecondary}
             value={password}
             onChangeText={setPassword}
+            onFocus={() => setPasswordFocused(true)}
+            onBlur={() => setPasswordFocused(false)}
             secureTextEntry={!showPassword}
             autoCapitalize="none"
           />
@@ -85,6 +104,7 @@ export default function LoginScreen() {
             style={styles.eyeButton}
             onPress={() => setShowPassword((current) => !current)}
             accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+            hitSlop={8}
           >
             {showPassword ? (
               <EyeOff size={20} color={COLORS.textSecondary} />
@@ -94,7 +114,7 @@ export default function LoginScreen() {
           </Pressable>
         </View>
 
-        <Pressable style={styles.forgotRow} onPress={() => {}}>
+        <Pressable style={styles.forgotRow} onPress={handleForgotPassword}>
           <Text style={styles.forgotText}>¿Olvidaste tu contraseña?</Text>
         </Pressable>
 
@@ -103,23 +123,25 @@ export default function LoginScreen() {
         <Pressable
           style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
           onPress={handleLogin}
-          disabled={isLoading}
+          disabled={isAuthenticating}
         >
-          {isLoading ? (
+          {isAuthenticating ? (
             <ActivityIndicator color={COLORS.surface} />
           ) : (
-            <Text style={styles.buttonText}>Entrar a mi cuenta</Text>
+            <Text style={styles.buttonText}>Iniciar Sesión</Text>
           )}
         </Pressable>
 
         <View style={styles.demoToggle}>
           <View style={styles.demoToggleIcon}>
-            <FlaskConical size={18} color={COLORS.gold} strokeWidth={2} />
+            <FlaskConical size={16} color={COLORS.gold} strokeWidth={2} />
           </View>
           <View style={styles.demoToggleText}>
             <Text style={styles.demoToggleLabel}>Modo Pruebas (Mock Data)</Text>
             <Text style={styles.demoToggleHint}>
-              {mockEnabled ? 'Inicia sesión sin conexión a Bubble' : 'Usa autenticación real de Bubble'}
+              {mockEnabled
+                ? 'Inicia sesión sin conexión a Bubble'
+                : 'Usa autenticación real de Bubble'}
             </Text>
           </View>
           <Switch
@@ -127,14 +149,8 @@ export default function LoginScreen() {
             onValueChange={setMockEnabled}
             trackColor={{ false: COLORS.border, true: COLORS.gold }}
             thumbColor={COLORS.surface}
+            style={styles.demoSwitch}
           />
-        </View>
-
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>¿No tienes cuenta? </Text>
-          <Pressable onPress={() => {}}>
-            <Text style={styles.footerLink}>Regístrate</Text>
-          </Pressable>
         </View>
       </View>
     </SafeAreaView>
@@ -150,40 +166,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.xl,
     paddingBottom: SPACING.lg,
+    alignItems: 'center',
   },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    width: '100%',
+  },
+  brandSpacer: {
+    width: 70,
+  },
+  badgeWrap: {
+    width: 70,
+    alignItems: 'flex-end',
   },
   logo: {
     fontSize: 30,
     fontWeight: '800',
     color: COLORS.surface,
     letterSpacing: 5,
-    marginBottom: SPACING.lg,
-  },
-  demoHint: {
-    marginTop: SPACING.sm,
-    fontSize: 12,
-    color: COLORS.goldLight,
+    textAlign: 'center',
   },
   heading: {
     fontSize: 24,
     fontWeight: '700',
     color: COLORS.surface,
+    marginTop: SPACING.lg,
   },
   subtitle: {
     marginTop: SPACING.xs,
     fontSize: 14,
     color: '#B8C4D4',
+    textAlign: 'center',
   },
   card: {
     flex: 1,
     backgroundColor: COLORS.surface,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    paddingHorizontal: SPACING.lg,
+    padding: SPACING.lg,
     paddingTop: SPACING.xl,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
@@ -203,36 +225,29 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginBottom: SPACING.xs,
   },
-  input: {
-    height: 52,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.surface,
-    paddingHorizontal: SPACING.md,
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    marginBottom: SPACING.md,
-  },
-  passwordWrap: {
+  field: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 52,
+    height: 54,
     borderRadius: RADIUS.md,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: COLORS.border,
     backgroundColor: COLORS.surface,
+    paddingHorizontal: SPACING.md,
     marginBottom: SPACING.md,
   },
-  passwordInput: {
+  fieldFocused: {
+    borderColor: COLORS.gold,
+  },
+  fieldInput: {
     flex: 1,
     height: '100%',
-    paddingHorizontal: SPACING.md,
+    marginLeft: SPACING.sm,
     fontSize: 15,
     color: COLORS.textPrimary,
   },
   eyeButton: {
-    paddingHorizontal: SPACING.md,
+    paddingHorizontal: SPACING.xs,
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
@@ -253,14 +268,15 @@ const styles = StyleSheet.create({
   },
   button: {
     height: 54,
-    borderRadius: RADIUS.pill,
+    borderRadius: 14,
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    marginTop: SPACING.sm,
     marginBottom: SPACING.lg,
   },
   buttonPressed: {
-    opacity: 0.85,
+    opacity: 0.9,
   },
   buttonText: {
     color: COLORS.surface,
@@ -270,16 +286,14 @@ const styles = StyleSheet.create({
   demoToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.background,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: SPACING.md,
-    marginBottom: SPACING.lg,
+    marginTop: 'auto',
+    paddingTop: SPACING.md,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: COLORS.border,
   },
   demoToggleIcon: {
-    width: 36,
-    height: 36,
+    width: 30,
+    height: 30,
     borderRadius: RADIUS.sm,
     backgroundColor: COLORS.goldLight,
     alignItems: 'center',
@@ -287,32 +301,19 @@ const styles = StyleSheet.create({
   },
   demoToggleText: {
     flex: 1,
-    marginLeft: SPACING.md,
+    marginLeft: SPACING.sm,
   },
   demoToggleLabel: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
     color: COLORS.textPrimary,
   },
   demoToggleHint: {
-    fontSize: 12,
+    fontSize: 11,
     color: COLORS.textSecondary,
-    marginTop: 2,
+    marginTop: 1,
   },
-  footer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginTop: 'auto',
-    paddingBottom: SPACING.lg,
-  },
-  footerText: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-  },
-  footerLink: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-    textDecorationLine: 'underline',
+  demoSwitch: {
+    transform: [{ scale: 0.8 }],
   },
 });

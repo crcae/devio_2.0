@@ -9,7 +9,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Download, FileCheck2, FileDown, Wallet, X } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, Download, FileDown, FileText, X } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
@@ -17,38 +17,59 @@ import type { FinancialSummary, Payment, PaymentStatus } from '../types';
 import { MOCK_PAYMENT_CONCEPTS } from '../services/mockData';
 import type { RootStackParamList } from '../navigation/types';
 import AppHeader from '../components/AppHeader';
+import EmptyState from '../components/EmptyState';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Pagos'>;
 
+type Tab = 'estado' | 'pagos';
+
 const STATUS_STYLE: Record<PaymentStatus, { bg: string; fg: string; label: string }> = {
   Pagado: { bg: '#E7F8EE', fg: COLORS.success, label: 'Pagado' },
   Parcial: { bg: '#FEF3E2', fg: COLORS.warning, label: 'Parcial' },
-  Pendiente: { bg: '#FDEBEB', fg: COLORS.danger, label: 'Pendiente' },
+  Pendiente: { bg: '#EDF2F7', fg: COLORS.primary, label: 'Pendiente' },
 };
 
-const FILTERS = ['Todos', 'Pagados', 'Pendientes'] as const;
-type Filter = (typeof FILTERS)[number];
-
-function formatMXN(amount: number): string {
-  return `$${amount.toLocaleString('en-US')} MXN`;
+interface InstallmentRow {
+  id: string;
+  unit: string;
+  amount: number;
+  interest: number;
+  status: PaymentStatus;
+  paid: number;
+  pending: number;
+  concept: string;
 }
 
-function formatDate(iso: string): string {
+interface ExecutedPayment {
+  id: string;
+  date: string;
+  method: string;
+  amount: number;
+}
+
+function formatMXN(amount: number): string {
+  return `$${amount.toLocaleString('en-US')}`;
+}
+
+function formatShortDate(iso: string): string {
   if (!iso) return '';
   const [y, m, d] = iso.split('-');
   const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  return `${d} ${months[Number(m) - 1]} ${y}`;
+  return `${d} ${months[Number(m) - 1]} ${String(y).slice(2)}`;
 }
 
 export default function PagosScreen({ navigation }: Props) {
   const { selectedProperty, payments, loadPayments, dataLoading } = useApp();
-  const [filter, setFilter] = useState<Filter>('Todos');
+  const [activeTab, setActiveTab] = useState<Tab>('estado');
   const [refreshing, setRefreshing] = useState(false);
-  const [activePayment, setActivePayment] = useState<Payment | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [statementModalOpen, setStatementModalOpen] = useState(false);
+  const [receiptPayment, setReceiptPayment] = useState<ExecutedPayment | null>(null);
 
   const unitId = selectedProperty?._id ?? '';
   const showOverlay = dataLoading && payments.length === 0;
+  const unitPrefix = selectedProperty?.unitCode ? selectedProperty.unitCode.replace(/^S-/, '') : '1A';
 
   useEffect(() => {
     if (unitId) {
@@ -58,7 +79,7 @@ export default function PagosScreen({ navigation }: Props) {
 
   const summary: FinancialSummary = useMemo(() => {
     if (payments.length === 0) {
-      return { totalPrice: 0, totalPaid: 0, pendingBalance: 0, overdueBalance: 0, paidPercentage: 0 };
+      return { totalPrice: 6000000, totalPaid: 300000, pendingBalance: 5700000, overdueBalance: 900000, paidPercentage: 5 };
     }
     const totalPrice = payments.reduce((sum, p) => sum + p.amount, 0);
     const totalPaid = payments.reduce((sum, p) => sum + p.paidAmount, 0);
@@ -75,11 +96,62 @@ export default function PagosScreen({ navigation }: Props) {
     };
   }, [payments]);
 
-  const filtered = useMemo(() => {
-    if (filter === 'Todos') return payments;
-    if (filter === 'Pagados') return payments.filter((p) => p.status === 'Pagado');
-    return payments.filter((p) => p.status !== 'Pagado');
-  }, [filter, payments]);
+  const installments: InstallmentRow[] = useMemo(() => {
+    if (payments.length === 0) {
+      return [
+        { id: 'mock-i1', unit: '1A', amount: 1200000, interest: 0, status: 'Parcial', paid: 300000, pending: 900000, concept: 'Enganche' },
+        { id: 'mock-i2', unit: '1A', amount: 1200000, interest: 0, status: 'Pendiente', paid: 0, pending: 1200000, concept: 'Pago 2' },
+        { id: 'mock-i3', unit: '1A', amount: 1200000, interest: 0, status: 'Pagado', paid: 1200000, pending: 0, concept: 'Pago 1' },
+      ];
+    }
+    return payments.map((payment) => ({
+      id: payment._id,
+      unit: unitPrefix,
+      amount: payment.amount,
+      interest: payment.interest,
+      status: payment.status,
+      paid: payment.paidAmount,
+      pending: payment.pendingAmount,
+      concept: MOCK_PAYMENT_CONCEPTS[payment._id] ?? 'Pago',
+    }));
+  }, [payments, unitPrefix]);
+
+  const executedPayments: ExecutedPayment[] = useMemo(() => {
+    if (payments.length === 0) {
+      return [
+        { id: 'mock-x1', date: '21 Ago 26', method: 'Transferencia', amount: 300000 },
+        { id: 'mock-x2', date: '15 Mar 26', method: 'Transferencia', amount: 612500 },
+      ];
+    }
+    return payments
+      .filter((p) => p.status === 'Pagado')
+      .map((p) => ({
+        id: p._id,
+        date: formatShortDate(p.dueDate),
+        method: 'Transferencia',
+        amount: p.paidAmount || p.amount,
+      }));
+  }, [payments]);
+
+  const isExpanded = (id: string) => expandedIds.has(id);
+  const toggleExpanded = (id: string) => {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const ids = installments.filter((i) => i.status === 'Parcial').map((i) => i.id);
+    if (ids.length > 0) {
+      setExpandedIds(new Set(ids));
+    }
+  }, [installments]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -89,140 +161,188 @@ export default function PagosScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
-  const handleAction = (payment: Payment, concept: string) => {
-    setActivePayment({ ...payment });
-    void concept;
-  };
-
-  const handleDownloadReceipt = (payment: Payment) => {
-    const concept = MOCK_PAYMENT_CONCEPTS[payment._id] ?? 'Pago';
-    Alert.alert(
-      'Descargar Comprobante',
-      `Generando PDF del comprobante de "${concept}" (${formatMXN(payment.amount)}).`,
-    );
-  };
-
-  const detailConcept = activePayment
-    ? MOCK_PAYMENT_CONCEPTS[activePayment._id] ?? 'Pago'
-    : '';
-
-  const renderPayment = ({ item, index }: { item: Payment; index: number }) => {
+  const renderInstallment = ({ item }: { item: InstallmentRow }) => {
+    const expanded = isExpanded(item.id);
     const status = STATUS_STYLE[item.status];
-    const concept = MOCK_PAYMENT_CONCEPTS[item._id] ?? `Pago ${index + 1}`;
+    const progressPct = item.amount > 0 ? Math.round((item.paid / item.amount) * 100) : 0;
     return (
-      <Pressable
-        style={({ pressed }) => [styles.paymentCard, pressed && styles.paymentCardPressed]}
-        onPress={() => handleAction(item, concept)}
-      >
-        <View style={styles.paymentHeader}>
-          <Text style={styles.paymentConcept}>{concept}</Text>
-          <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
-            <Text style={[styles.statusText, { color: status.fg }]}>{status.label}</Text>
-          </View>
-        </View>
-        <View style={styles.paymentMeta}>
-          <Text style={styles.paymentDate}>Vence: {formatDate(item.dueDate)}</Text>
-          <Text style={styles.paymentAmount}>{formatMXN(item.amount)}</Text>
-        </View>
+      <View>
         <Pressable
-          style={({ pressed }) => [styles.actionButton, pressed && styles.actionPressed]}
-          onPress={() => handleAction(item, concept)}
+          style={({ pressed }) => [styles.tableRow, pressed && styles.rowPressed]}
+          onPress={() => toggleExpanded(item.id)}
         >
-          {item.status === 'Pagado' ? (
-            <FileCheck2 size={15} color={COLORS.surface} strokeWidth={2.2} />
-          ) : (
-            <Download size={15} color={COLORS.surface} strokeWidth={2.2} />
-          )}
-          <Text style={styles.actionText}>
-            {item.status === 'Pagado' ? 'Ver Comprobante' : 'Descargar Recibo'}
-          </Text>
+          <Text style={[styles.cell, styles.cellUnit]}>{item.unit}</Text>
+          <Text style={[styles.cell, styles.cellAmount]}>{formatMXN(item.amount)}</Text>
+          <Text style={[styles.cell, styles.cellInterest]}>{formatMXN(item.interest)}</Text>
+          <View style={styles.cellStatus}>
+            <View style={[styles.statusBadge, { backgroundColor: status.bg }]}>
+              <Text style={[styles.statusText, { color: status.fg }]}>{status.label}</Text>
+            </View>
+            {expanded ? (
+              <ChevronUp size={16} color={COLORS.textSecondary} />
+            ) : (
+              <ChevronDown size={16} color={COLORS.textSecondary} />
+            )}
+          </View>
         </Pressable>
-      </Pressable>
+
+        {expanded ? (
+          <View style={styles.breakdown}>
+            <View style={styles.breakdownCards}>
+              <View style={styles.breakdownCard}>
+                <Text style={styles.breakdownValue}>{formatMXN(item.amount)}</Text>
+                <Text style={styles.breakdownLabel}>Total del Pago</Text>
+              </View>
+              <View style={styles.breakdownCard}>
+                <Text style={[styles.breakdownValue, { color: COLORS.success }]}>
+                  {formatMXN(item.paid)}
+                </Text>
+                <Text style={styles.breakdownLabel}>Ya pagado</Text>
+              </View>
+              <View style={styles.breakdownCard}>
+                <Text style={[styles.breakdownValue, { color: COLORS.danger }]}>
+                  {formatMXN(item.pending)}
+                </Text>
+                <Text style={styles.breakdownLabel}>Falta por pagar</Text>
+              </View>
+            </View>
+
+            <View style={styles.breakdownProgressRow}>
+              <View style={styles.breakdownTrack}>
+                <View style={[styles.breakdownFill, { width: `${progressPct}%` }]} />
+              </View>
+              <Text style={styles.breakdownPercent}>{progressPct}%</Text>
+            </View>
+          </View>
+        ) : null}
+      </View>
     );
   };
 
-  const header = (
-    <View>
-      <View style={styles.summaryCard}>
-        <View style={styles.summaryTop}>
-          <View style={styles.summaryIcon}>
-            <Wallet size={22} color={COLORS.gold} strokeWidth={2} />
-          </View>
-          <View style={styles.summaryText}>
-            <Text style={styles.summaryCaption}>Precio total</Text>
-            <Text style={styles.summaryTotal}>
-              {summary.totalPrice > 0 ? formatMXN(summary.totalPrice) : '$0 MXN'}
-            </Text>
-            <Text style={styles.summaryUnit}>
-              {selectedProperty?.name ?? 'Solea Residencial | 1A'}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.splitRow}>
-          <View style={styles.splitItem}>
-            <Text style={styles.splitValue}>{formatMXN(summary.totalPaid)}</Text>
-            <Text style={styles.splitLabel}>Pagado</Text>
-          </View>
-          <View style={styles.splitDivider} />
-          <View style={styles.splitItem}>
-            <Text style={styles.splitValue}>{formatMXN(summary.pendingBalance)}</Text>
-            <Text style={styles.splitLabel}>Pendiente</Text>
-          </View>
-        </View>
-
-        <View style={styles.barTrack}>
-          <View style={[styles.barFill, { width: `${summary.paidPercentage}%` }]} />
-        </View>
-        <Text style={styles.barLabel}>{summary.paidPercentage}% Pagado</Text>
-      </View>
-
-      <View style={styles.filters}>
-        {FILTERS.map((f) => {
-          const isActive = filter === f;
-          return (
-            <Pressable
-              key={f}
-              style={[styles.filterTab, isActive && styles.filterTabActive]}
-              onPress={() => setFilter(f)}
-            >
-              <Text style={[styles.filterText, isActive && styles.filterTextActive]}>{f}</Text>
-            </Pressable>
-          );
-        })}
+  const renderExecutedPayment = ({ item }: { item: ExecutedPayment }) => (
+    <View style={styles.tableRow}>
+      <Text style={[styles.cell, styles.cellUnit]}>{item.date}</Text>
+      <Text style={[styles.cell, styles.cellAmount]}>{item.method}</Text>
+      <Text style={[styles.cell, styles.cellInterest]}>{formatMXN(item.amount)}</Text>
+      <View style={styles.cellStatus}>
+        <Pressable
+          style={({ pressed }) => [styles.receiptButton, pressed && styles.rowPressed]}
+          onPress={() => setReceiptPayment(item)}
+        >
+          <Text style={styles.receiptButtonText}>Recibo</Text>
+        </Pressable>
       </View>
     </View>
   );
 
+  const tableHeader = activeTab === 'estado' ? (
+    <View style={styles.tableHeader}>
+      <Text style={[styles.cell, styles.cellUnit, styles.tableHeaderText]}>Unidad</Text>
+      <Text style={[styles.cell, styles.cellAmount, styles.tableHeaderText]}>Cantidad</Text>
+      <Text style={[styles.cell, styles.cellInterest, styles.tableHeaderText]}>Intereses</Text>
+      <Text style={[styles.cell, styles.cellStatus, styles.tableHeaderText]}>Estatus</Text>
+    </View>
+  ) : (
+    <View style={styles.tableHeader}>
+      <Text style={[styles.cell, styles.cellUnit, styles.tableHeaderText]}>Fecha pago</Text>
+      <Text style={[styles.cell, styles.cellAmount, styles.tableHeaderText]}>Metodo pago</Text>
+      <Text style={[styles.cell, styles.cellInterest, styles.tableHeaderText]}>Monto</Text>
+      <Text style={[styles.cell, styles.cellStatus, styles.tableHeaderText]}>Archivos</Text>
+    </View>
+  );
+
+  const header = (
+    <View>
+      <View style={styles.summaryCard}>
+        <Text style={styles.summaryTitle}>Resumen Financiero</Text>
+
+        <View style={styles.metricsGrid}>
+          <View style={styles.metric}>
+            <Text style={[styles.metricValue, { color: COLORS.success }]}>
+              {formatMXN(summary.totalPaid)}
+            </Text>
+            <Text style={styles.metricLabel}>Total Pagado</Text>
+          </View>
+          <View style={styles.metric}>
+            <Text style={[styles.metricValue, { color: COLORS.danger }]}>
+              {formatMXN(summary.overdueBalance)}
+            </Text>
+            <Text style={styles.metricLabel}>Saldo Vencido</Text>
+          </View>
+          <View style={styles.metric}>
+            <Text style={[styles.metricValue, { color: COLORS.textPrimary }]}>
+              {formatMXN(summary.pendingBalance)}
+            </Text>
+            <Text style={styles.metricLabel}>Saldo Pendiente</Text>
+          </View>
+          <View style={styles.metric}>
+            <Text style={[styles.metricValue, { color: COLORS.textPrimary }]}>
+              {summary.paidPercentage}%
+            </Text>
+            <Text style={styles.metricLabel}>% Pagado</Text>
+          </View>
+        </View>
+      </View>
+
+      <Pressable
+        style={({ pressed }) => [styles.downloadButton, pressed && styles.rowPressed]}
+        onPress={() => setStatementModalOpen(true)}
+      >
+        <Download size={16} color={COLORS.surface} strokeWidth={2.2} />
+        <Text style={styles.downloadButtonText}>Descargar Estado de Cuenta</Text>
+      </Pressable>
+
+      <View style={styles.segmented}>
+        <Pressable
+          style={[styles.segment, activeTab === 'estado' && styles.segmentActive]}
+          onPress={() => setActiveTab('estado')}
+        >
+          <Text style={[styles.segmentText, activeTab === 'estado' && styles.segmentTextActive]}>
+            Estado de Cuenta
+          </Text>
+        </Pressable>
+        <Pressable
+          style={[styles.segment, activeTab === 'pagos' && styles.segmentActive]}
+          onPress={() => setActiveTab('pagos')}
+        >
+          <Text style={[styles.segmentText, activeTab === 'pagos' && styles.segmentTextActive]}>
+            Pagos
+          </Text>
+        </Pressable>
+      </View>
+
+      {tableHeader}
+    </View>
+  );
+
+  const listData = activeTab === 'estado' ? installments : executedPayments;
+  const keyExtractor = (item: InstallmentRow | ExecutedPayment) => item.id;
+  const renderItem = ({ item }: { item: InstallmentRow | ExecutedPayment }) =>
+    activeTab === 'estado' ? renderInstallment({ item: item as InstallmentRow }) : renderExecutedPayment({ item: item as ExecutedPayment });
+
   return (
     <View style={styles.container}>
-      <AppHeader title="Estado de Cuenta" onBack={() => navigation.goBack()} />
+      <AppHeader title="Pagos" onBack={() => navigation.goBack()} />
 
       {showOverlay ? (
         <View style={styles.list}>
           <SkeletonCard>
-            <SkeletonBlock width="100%" height={120} borderRadius={12} />
+            <SkeletonBlock width="60%" height={18} />
+            <View style={{ height: 12 }} />
+            <SkeletonBlock width="100%" height={90} borderRadius={12} />
           </SkeletonCard>
           <SkeletonCard>
-            <SkeletonBlock width="60%" height={16} />
-            <View style={{ height: 10 }} />
-            <SkeletonBlock width="40%" height={16} />
-            <View style={{ height: 10 }} />
-            <SkeletonBlock width="100%" height={40} borderRadius={20} />
+            <SkeletonBlock width="100%" height={44} borderRadius={20} />
           </SkeletonCard>
           <SkeletonCard>
-            <SkeletonBlock width="60%" height={16} />
-            <View style={{ height: 10 }} />
-            <SkeletonBlock width="40%" height={16} />
-            <View style={{ height: 10 }} />
-            <SkeletonBlock width="100%" height={40} borderRadius={20} />
+            <SkeletonBlock width="100%" height={40} />
           </SkeletonCard>
         </View>
       ) : (
         <FlatList
-          data={filtered}
-          keyExtractor={(item) => item._id}
-          renderItem={renderPayment}
+          data={listData}
+          keyExtractor={keyExtractor}
+          renderItem={renderItem}
           ListHeaderComponent={header}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
@@ -235,76 +355,117 @@ export default function PagosScreen({ navigation }: Props) {
             />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>No hay pagos registrados.</Text>
-            </View>
+            <EmptyState
+              icon={FileText}
+              title="No hay registros en esta categoría"
+              description="Cambia de pestaña o vuelve a intentarlo más tarde."
+            />
           }
         />
       )}
 
       <Modal
-        visible={activePayment !== null}
+        visible={statementModalOpen}
         transparent
         animationType="slide"
-        onRequestClose={() => setActivePayment(null)}
+        onRequestClose={() => setStatementModalOpen(false)}
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalHeaderTitle}>Detalle de pago</Text>
+              <Text style={styles.modalTitle}>Estado de Cuenta</Text>
               <Pressable
                 style={styles.modalClose}
-                onPress={() => setActivePayment(null)}
+                onPress={() => setStatementModalOpen(false)}
                 accessibilityLabel="Cerrar"
               >
                 <X size={22} color={COLORS.textPrimary} />
               </Pressable>
             </View>
 
-            {activePayment ? (
+            <View style={styles.pdfPreview}>
+              <FileText size={56} color={COLORS.danger} strokeWidth={1.4} />
+              <Text style={styles.pdfPreviewText}>Vista previa PDF</Text>
+              <Text style={styles.pdfPreviewMeta}>Estado_de_Cuenta_{unitPrefix}.pdf</Text>
+            </View>
+
+            <View style={styles.statementRows}>
+              <View style={styles.statementRow}>
+                <Text style={styles.statementLabel}>Total Pagado</Text>
+                <Text style={styles.statementValue}>{formatMXN(summary.totalPaid)}</Text>
+              </View>
+              <View style={styles.statementRow}>
+                <Text style={styles.statementLabel}>Saldo Pendiente</Text>
+                <Text style={styles.statementValue}>{formatMXN(summary.pendingBalance)}</Text>
+              </View>
+              <View style={styles.statementRow}>
+                <Text style={styles.statementLabel}>% Pagado</Text>
+                <Text style={styles.statementValue}>{summary.paidPercentage}%</Text>
+              </View>
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [styles.downloadButton, pressed && styles.rowPressed]}
+              onPress={() => Alert.alert('Descarga', 'El Estado de Cuenta PDF se descargará en breve.')}
+            >
+              <FileDown size={16} color={COLORS.surface} strokeWidth={2.2} />
+              <Text style={styles.downloadButtonText}>Descargar PDF</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={receiptPayment !== null}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setReceiptPayment(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Comprobante de Pago</Text>
+              <Pressable
+                style={styles.modalClose}
+                onPress={() => setReceiptPayment(null)}
+                accessibilityLabel="Cerrar"
+              >
+                <X size={22} color={COLORS.textPrimary} />
+              </Pressable>
+            </View>
+
+            {receiptPayment ? (
               <>
-                <Text style={styles.detailConcept}>{detailConcept}</Text>
-                {(() => {
-                  const st = STATUS_STYLE[activePayment.status];
-                  return (
-                    <View style={[styles.detailBadge, { backgroundColor: st.bg }]}>
-                      <Text style={[styles.detailBadgeText, { color: st.fg }]}>{st.label}</Text>
-                    </View>
-                  );
-                })()}
-
-                <View style={styles.detailAmountRow}>
-                  <Text style={styles.detailAmount}>{formatMXN(activePayment.amount)}</Text>
-                  <Text style={styles.detailAmountCaption}>Monto total</Text>
+                <View style={styles.pdfPreview}>
+                  <FileText size={56} color={COLORS.danger} strokeWidth={1.4} />
+                  <Text style={styles.pdfPreviewText}>Recibo de pago</Text>
                 </View>
 
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Monto base</Text>
-                  <Text style={styles.detailValue}>{formatMXN(activePayment.amount)}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Intereses</Text>
-                  <Text style={styles.detailValue}>{formatMXN(activePayment.interest)}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Fecha límite</Text>
-                  <Text style={styles.detailValue}>{formatDate(activePayment.dueDate)}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Monto pagado</Text>
-                  <Text style={styles.detailValue}>{formatMXN(activePayment.paidAmount)}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Monto pendiente</Text>
-                  <Text style={styles.detailValue}>{formatMXN(activePayment.pendingAmount)}</Text>
+                <View style={styles.statementRows}>
+                  <View style={styles.statementRow}>
+                    <Text style={styles.statementLabel}>ID Transacción</Text>
+                    <Text style={styles.statementValue}>DEV-{receiptPayment.id.replace(/[^0-9]/g, '').padStart(6, '0')}</Text>
+                  </View>
+                  <View style={styles.statementRow}>
+                    <Text style={styles.statementLabel}>Método de pago</Text>
+                    <Text style={styles.statementValue}>{receiptPayment.method}</Text>
+                  </View>
+                  <View style={styles.statementRow}>
+                    <Text style={styles.statementLabel}>Fecha</Text>
+                    <Text style={styles.statementValue}>{receiptPayment.date}</Text>
+                  </View>
+                  <View style={styles.statementRow}>
+                    <Text style={styles.statementLabel}>Monto</Text>
+                    <Text style={styles.statementValue}>{formatMXN(receiptPayment.amount)}</Text>
+                  </View>
                 </View>
 
                 <Pressable
-                  style={({ pressed }) => [styles.modalButton, pressed && styles.modalButtonPressed]}
-                  onPress={() => handleDownloadReceipt(activePayment)}
+                  style={({ pressed }) => [styles.downloadButton, pressed && styles.rowPressed]}
+                  onPress={() => Alert.alert('Descarga', 'El comprobante PDF se descargará en breve.')}
                 >
                   <FileDown size={16} color={COLORS.surface} strokeWidth={2.2} />
-                  <Text style={styles.modalButtonText}>Descargar Comprobante PDF</Text>
+                  <Text style={styles.downloadButtonText}>Descargar Comprobante PDF</Text>
                 </Pressable>
               </>
             ) : null}
@@ -326,191 +487,202 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.xl,
   },
   summaryCard: {
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1.5,
-    borderColor: COLORS.gold,
-    padding: SPACING.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  summaryTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  summaryIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: RADIUS.md,
-    backgroundColor: 'rgba(200,158,106,0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  summaryText: {
-    flex: 1,
-    marginLeft: SPACING.md,
-  },
-  summaryCaption: {
-    fontSize: 12,
-    color: COLORS.goldLight,
-  },
-  summaryTotal: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: COLORS.surface,
-    marginTop: 2,
-  },
-  summaryUnit: {
-    fontSize: 12,
-    color: '#B8C4D4',
-    marginTop: 2,
-  },
-  splitRow: {
-    flexDirection: 'row',
-    marginTop: SPACING.lg,
-  },
-  splitItem: {
-    flex: 1,
-  },
-  splitDivider: {
-    width: 1,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    marginHorizontal: SPACING.md,
-  },
-  splitValue: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.surface,
-  },
-  splitLabel: {
-    fontSize: 12,
-    color: '#B8C4D4',
-    marginTop: 2,
-  },
-  barTrack: {
-    height: 8,
-    borderRadius: RADIUS.pill,
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    marginTop: SPACING.lg,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.gold,
-  },
-  barLabel: {
-    marginTop: SPACING.sm,
-    fontSize: 13,
-    fontWeight: '700',
-    color: COLORS.gold,
-    textAlign: 'right',
-  },
-  filters: {
-    flexDirection: 'row',
-    marginTop: SPACING.lg,
-    marginBottom: SPACING.md,
-  },
-  filterTab: {
-    flex: 1,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.pill,
     backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginHorizontal: 3,
-    alignItems: 'center',
-  },
-  filterTabActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  filterText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-  },
-  filterTextActive: {
-    color: COLORS.surface,
-  },
-  paymentCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderRadius: 16,
     padding: SPACING.md,
     marginBottom: SPACING.md,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  paymentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  paymentConcept: {
-    flex: 1,
-    fontSize: 15,
+  summaryTitle: {
+    fontSize: 18,
     fontWeight: '700',
     color: COLORS.textPrimary,
+    marginBottom: SPACING.md,
+  },
+  metricsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  metric: {
+    width: '50%',
+    paddingVertical: SPACING.sm,
+  },
+  metricValue: {
+    fontSize: 19,
+    fontWeight: '800',
+  },
+  metricLabel: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+  },
+  downloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    marginBottom: SPACING.md,
+  },
+  downloadButtonText: {
+    marginLeft: 8,
+    color: COLORS.surface,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  segmented: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.pill,
+    padding: 4,
+    marginBottom: SPACING.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  segment: {
+    flex: 1,
+    paddingVertical: SPACING.sm,
+    borderRadius: RADIUS.pill,
+    alignItems: 'center',
+  },
+  segmentActive: {
+    backgroundColor: COLORS.primary,
+  },
+  segmentText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  segmentTextActive: {
+    color: COLORS.surface,
+  },
+  tableHeader: {
+    flexDirection: 'row',
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    marginBottom: 2,
+  },
+  tableHeaderText: {
+    fontWeight: '700',
+  },
+  tableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  rowPressed: {
+    opacity: 0.85,
+  },
+  cell: {
+    flex: 1,
+    fontSize: 13,
+    color: COLORS.textPrimary,
+  },
+  cellUnit: {
+    flex: 1,
+  },
+  cellAmount: {
+    flex: 1.4,
+    fontWeight: '600',
+  },
+  cellInterest: {
+    flex: 1,
+  },
+  cellStatus: {
+    flex: 1.2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
   },
   statusBadge: {
     paddingHorizontal: SPACING.sm,
     paddingVertical: 4,
     borderRadius: RADIUS.pill,
+    marginRight: 6,
   },
   statusText: {
     fontSize: 11,
     fontWeight: '700',
   },
-  paymentMeta: {
+  breakdown: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+    marginTop: -SPACING.sm + 2,
+  },
+  breakdownCards: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: SPACING.sm,
   },
-  paymentDate: {
+  breakdownCard: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+    borderRadius: 12,
+    padding: SPACING.sm,
+    alignItems: 'center',
+    marginHorizontal: 2,
+  },
+  breakdownValue: {
     fontSize: 13,
-    color: COLORS.textSecondary,
-  },
-  paymentAmount: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
   },
-  actionButton: {
+  breakdownLabel: {
+    fontSize: 10,
+    color: COLORS.textSecondary,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  breakdownProgressRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     marginTop: SPACING.md,
-    paddingVertical: 10,
+  },
+  breakdownTrack: {
+    flex: 1,
+    height: 8,
     borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.primary,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden',
   },
-  actionPressed: {
-    opacity: 0.85,
+  breakdownFill: {
+    height: '100%',
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.gold,
   },
-  actionText: {
-    marginLeft: 6,
+  breakdownPercent: {
+    marginLeft: SPACING.sm,
     fontSize: 13,
     fontWeight: '700',
+    color: COLORS.gold,
+  },
+  receiptButton: {
+    backgroundColor: COLORS.primary,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 6,
+  },
+  receiptButtonText: {
     color: COLORS.surface,
-  },
-  empty: {
-    paddingVertical: SPACING.xl,
-    alignItems: 'center',
-  },
-  emptyText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
-  },
-  paymentCardPressed: {
-    opacity: 0.9,
+    fontSize: 11,
+    fontWeight: '700',
   },
   modalBackdrop: {
     flex: 1,
@@ -530,8 +702,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: SPACING.md,
   },
-  modalHeaderTitle: {
-    fontSize: 17,
+  modalTitle: {
+    fontSize: 18,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
@@ -543,69 +715,44 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  detailConcept: {
-    fontSize: 16,
+  pdfPreview: {
+    height: 150,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: SPACING.md,
+  },
+  pdfPreviewText: {
+    marginTop: SPACING.sm,
+    fontSize: 14,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  detailBadge: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 4,
-    borderRadius: RADIUS.pill,
-    marginTop: SPACING.sm,
-    marginBottom: SPACING.md,
-  },
-  detailBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  detailAmountRow: {
-    alignItems: 'center',
-    marginBottom: SPACING.lg,
-  },
-  detailAmount: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: COLORS.primary,
-  },
-  detailAmountCaption: {
+  pdfPreviewMeta: {
     fontSize: 12,
     color: COLORS.textSecondary,
     marginTop: 2,
   },
-  detailRow: {
+  statementRows: {
+    marginBottom: SPACING.md,
+  },
+  statementRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border,
   },
-  detailLabel: {
+  statementLabel: {
     fontSize: 14,
     color: COLORS.textSecondary,
   },
-  detailValue: {
+  statementValue: {
     fontSize: 14,
     fontWeight: '600',
     color: COLORS.textPrimary,
-  },
-  modalButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 50,
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.primary,
-    marginTop: SPACING.lg,
-  },
-  modalButtonPressed: {
-    opacity: 0.85,
-  },
-  modalButtonText: {
-    marginLeft: 6,
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.surface,
   },
 });

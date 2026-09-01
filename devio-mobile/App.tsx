@@ -8,6 +8,8 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { COLORS } from './src/constants/theme';
 
 import { AppProvider, useApp } from './src/context/AppContext';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import OfflineBanner from './src/components/OfflineBanner';
 import BottomTab from './src/components/BottomTab';
 import type { RootStackParamList } from './src/navigation/types';
 import LoginScreen from './src/screens/LoginScreen';
@@ -69,17 +71,25 @@ function RootNavigator() {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <AppProvider>
-        <StatusBar style="light" />
-        <NavigationContainer>
-          <RootNavigator />
-        </NavigationContainer>
-      </AppProvider>
+      <ErrorBoundary>
+        <AppProvider>
+          <StatusBar style="light" />
+          <View style={styles.root}>
+            <NavigationContainer>
+              <RootNavigator />
+            </NavigationContainer>
+            <OfflineBanner />
+          </View>
+        </AppProvider>
+      </ErrorBoundary>
     </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   splash: {
     flex: 1,
     backgroundColor: COLORS.primary,

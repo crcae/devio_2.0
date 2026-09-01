@@ -1,28 +1,49 @@
 {
   "expo": {
-    "name": "devio-mobile",
+    "name": "DEVIO Mobile",
     "slug": "devio-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1F3652"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": false,
+      "bundleIdentifier": "com.devio.app",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "DEVIO te notifica sobre el estado de tus pagos, avances de obra y documentos de tu propiedad.",
+        "NSPhotoLibraryUsageDescription": "DEVIO permite adjuntar fotografías de avance de obra y comprobantes de pago.",
+        "NSCameraUsageDescription": "DEVIO permite tomar fotografías para documentar avances de obra."
+      }
     },
     "android": {
+      "package": "com.devio.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#1F3652",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "expo-status-bar"
+      "expo-status-bar",
+      [
+        "expo-notifications",
+        {
+          "color": "#1F3652"
+        }
+      ]
     ]
   }
 }

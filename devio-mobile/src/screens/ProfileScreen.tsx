@@ -1,32 +1,31 @@
 import React, { useState } from 'react';
 import {
   Alert,
+  Image,
+  Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
-  Bell,
+  Camera,
   ChevronRight,
   CircleUserRound,
-  FileText,
   HelpCircle,
   Lock,
   LogOut,
-  Mail,
-  MapPin,
-  Phone,
+  Save,
   Shield,
+  X,
 } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
-import * as Application from 'expo-application';
-
-const APP_VERSION = Application.nativeApplicationVersion ?? '1.0.0';
 
 function initialsOf(name: string | undefined): string {
   if (!name) return 'D';
@@ -40,174 +39,259 @@ function initialsOf(name: string | undefined): string {
 
 export default function ProfileScreen() {
   const { user, logout } = useApp();
-  const [showPersonal, setShowPersonal] = useState(false);
-  const [emailNotifications, setEmailNotifications] = useState(true);
-  const [pushNotifications, setPushNotifications] = useState(true);
+  const [name, setName] = useState(user?.name ?? '');
+  const [email, setEmail] = useState(user?.email ?? '');
+  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
-  const personalInfo = {
-    email: user?.email ?? 'cliente@devio.mx',
-    phone: '+52 444 123 4567',
-    address: 'Av. Carranza 1020, San Luis Potosí, S.L.P.',
+  const handlePickImage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a la galería para cambiar tu foto de perfil.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+    });
+    if (!result.canceled && result.assets.length > 0) {
+      setAvatarUri(result.assets[0].uri);
+    }
+  };
+
+  const handleSave = () => {
+    if (!name.trim()) {
+      Alert.alert('Datos requeridos', 'El nombre no puede estar vacío.');
+      return;
+    }
+    Alert.alert('Guardado', 'Tu información personal se actualizó correctamente.');
   };
 
   const handleChangePassword = () => {
-    Alert.alert('Seguridad', 'El cambio de contraseña se habilitará próximamente.');
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      Alert.alert('Campos requeridos', 'Completa todos los campos de contraseña.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Contraseñas no coinciden', 'La nueva contraseña y su confirmación deben ser iguales.');
+      return;
+    }
+    setPasswordModalOpen(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    Alert.alert('Contraseña actualizada', 'Tu contraseña se cambió correctamente.');
   };
 
-  const handleLink = (label: string) => {
-    Alert.alert(label, 'Documento disponible próximamente en el portal DEVIO.');
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Eliminar cuenta',
+      '¿Estás seguro de que deseas eliminar tu cuenta? Esta acción no se puede deshacer.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Eliminar', style: 'destructive', onPress: () => logout() },
+      ],
+    );
+  };
+
+  const handleLogout = () => {
+    Alert.alert('Cerrar sesión', '¿Deseas cerrar tu sesión en este dispositivo?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Cerrar sesión', style: 'destructive', onPress: () => logout() },
+    ]);
+  };
+
+  const openUrl = async (url: string) => {
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Error', 'No fue posible abrir el enlace.');
+    }
   };
 
   return (
     <View style={styles.container}>
-      <SafeAreaView style={styles.header} edges={['top']}>
-        <Text style={styles.headerTitle}>Mi Perfil</Text>
+      <SafeAreaView edges={['top']}>
+        <View style={styles.topBar}>
+          <Text style={styles.topBarTitle}>Perfil</Text>
+        </View>
       </SafeAreaView>
 
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.profileCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initialsOf(user?.name)}</Text>
+        <View style={styles.avatarSection}>
+          <View style={styles.avatarWrap}>
+            {avatarUri ? (
+              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initialsOf(user?.name)}</Text>
+              </View>
+            )}
+            <Pressable
+              style={styles.avatarEdit}
+              onPress={handlePickImage}
+              accessibilityLabel="Cambiar foto de perfil"
+            >
+              <Camera size={16} color={COLORS.surface} strokeWidth={2.2} />
+            </Pressable>
           </View>
-          <Text style={styles.name}>{user?.name ?? 'Carlos Mendoza'}</Text>
-          <Text style={styles.email}>{user?.email ?? personalInfo.email}</Text>
-          <View style={styles.roleBadge}>
-            <Text style={styles.roleText}>Inversionista / Propietario</Text>
-          </View>
-        </View>
-
-        <Text style={styles.sectionTitle}>Configuración de cuenta</Text>
-
-        <View style={styles.sectionCard}>
-          <Pressable
-            style={styles.sectionRow}
-            onPress={() => setShowPersonal((current) => !current)}
-          >
-            <View style={[styles.sectionIcon, { backgroundColor: COLORS.goldLight }]}>
-              <CircleUserRound size={20} color={COLORS.gold} strokeWidth={2} />
-            </View>
-            <Text style={styles.sectionLabel}>Información Personal</Text>
-            <ChevronRight
-              size={18}
-              color={COLORS.textSecondary}
-              style={showPersonal ? styles.chevronOpen : undefined}
-            />
+          <Text style={styles.avatarName}>{user?.name ?? 'Usuario DEVIO'}</Text>
+          <Pressable style={styles.avatarEditLink} onPress={handlePickImage}>
+            <Text style={styles.avatarEditText}>Cambiar foto de perfil</Text>
           </Pressable>
-
-          {showPersonal ? (
-            <View style={styles.personalDetails}>
-              <View style={styles.detailRow}>
-                <Mail size={16} color={COLORS.textSecondary} strokeWidth={2} />
-                <Text style={styles.detailText}>{personalInfo.email}</Text>
-              </View>
-              <View style={styles.detailRow}>
-                <Phone size={16} color={COLORS.textSecondary} strokeWidth={2} />
-                <Text style={styles.detailText}>{personalInfo.phone}</Text>
-              </View>
-              <View style={styles.detailRow}>
-                <MapPin size={16} color={COLORS.textSecondary} strokeWidth={2} />
-                <Text style={styles.detailText}>{personalInfo.address}</Text>
-              </View>
-            </View>
-          ) : null}
         </View>
 
         <View style={styles.sectionCard}>
-          <Pressable style={styles.sectionRow} onPress={handleChangePassword}>
-            <View style={[styles.sectionIcon, { backgroundColor: COLORS.goldLight }]}>
-              <Lock size={20} color={COLORS.gold} strokeWidth={2} />
-            </View>
-            <Text style={styles.sectionLabel}>Seguridad</Text>
+          <Text style={styles.sectionTitle}>Información Personal</Text>
+
+          <Text style={styles.label}>Nombre</Text>
+          <TextInput
+            style={styles.input}
+            value={name}
+            onChangeText={setName}
+            placeholder="Tu nombre completo"
+            placeholderTextColor={COLORS.textSecondary}
+            autoCorrect={false}
+          />
+
+          <Text style={styles.label}>Correo electrónico</Text>
+          <TextInput
+            style={styles.input}
+            value={email}
+            onChangeText={setEmail}
+            placeholder="tu@correo.com"
+            placeholderTextColor={COLORS.textSecondary}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <Pressable
+            style={({ pressed }) => [styles.passwordRow, pressed && styles.pressed]}
+            onPress={() => setPasswordModalOpen(true)}
+          >
+            <Lock size={18} color={COLORS.gold} strokeWidth={2} />
+            <Text style={styles.passwordRowText}>Cambiar contraseña</Text>
             <ChevronRight size={18} color={COLORS.textSecondary} />
           </Pressable>
-          <View style={styles.sectionDivider} />
-          <View style={styles.sectionRow}>
-            <View style={[styles.sectionIcon, { backgroundColor: COLORS.goldLight }]}>
+
+          <Pressable
+            style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
+            onPress={handleSave}
+          >
+            <Save size={18} color={COLORS.surface} strokeWidth={2.2} />
+            <Text style={styles.saveButtonText}>Guardar</Text>
+          </Pressable>
+
+          <Pressable style={styles.deleteRow} onPress={handleDeleteAccount}>
+            <Text style={styles.deleteText}>Eliminar cuenta</Text>
+          </Pressable>
+        </View>
+
+        <Text style={styles.moduleLabel}>General</Text>
+        <View style={styles.sectionCard}>
+          <Pressable
+            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+            onPress={() => openUrl('https://app.deviomx.com/terminos_y_condiciones')}
+          >
+            <View style={styles.linkIcon}>
               <Shield size={20} color={COLORS.gold} strokeWidth={2} />
             </View>
-            <View style={styles.sectionBody}>
-              <Text style={styles.sectionLabel}>Cambiar contraseña</Text>
-              <Text style={styles.sectionHint}>Actualiza tu contraseña de acceso</Text>
+            <Text style={styles.linkLabel}>Legal</Text>
+            <ChevronRight size={18} color={COLORS.textSecondary} />
+          </Pressable>
+          <View style={styles.linkDivider} />
+          <Pressable
+            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+            onPress={() => openUrl('https://wa.me/3321772355')}
+          >
+            <View style={styles.linkIcon}>
+              <HelpCircle size={20} color={COLORS.gold} strokeWidth={2} />
             </View>
-            <Pressable onPress={handleChangePassword}>
-              <ChevronRight size={18} color={COLORS.textSecondary} />
+            <Text style={styles.linkLabel}>Soporte</Text>
+            <ChevronRight size={18} color={COLORS.textSecondary} />
+          </Pressable>
+          <View style={styles.linkDivider} />
+          <Pressable
+            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+            onPress={handleLogout}
+          >
+            <View style={[styles.linkIcon, { backgroundColor: '#FDEBEB' }]}>
+              <LogOut size={20} color={COLORS.danger} strokeWidth={2} />
+            </View>
+            <Text style={[styles.linkLabel, { color: COLORS.danger }]}>Cerrar sesión</Text>
+            <ChevronRight size={18} color={COLORS.textSecondary} />
+          </Pressable>
+        </View>
+      </ScrollView>
+
+      <Modal
+        visible={passwordModalOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPasswordModalOpen(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cambiar contraseña</Text>
+              <Pressable
+                style={styles.modalClose}
+                onPress={() => setPasswordModalOpen(false)}
+                accessibilityLabel="Cerrar"
+              >
+                <X size={22} color={COLORS.textPrimary} />
+              </Pressable>
+            </View>
+
+            <Text style={styles.label}>Contraseña actual</Text>
+            <TextInput
+              style={styles.input}
+              value={currentPassword}
+              onChangeText={setCurrentPassword}
+              placeholder="••••••••"
+              placeholderTextColor={COLORS.textSecondary}
+              secureTextEntry
+            />
+
+            <Text style={styles.label}>Nueva contraseña</Text>
+            <TextInput
+              style={styles.input}
+              value={newPassword}
+              onChangeText={setNewPassword}
+              placeholder="••••••••"
+              placeholderTextColor={COLORS.textSecondary}
+              secureTextEntry
+            />
+
+            <Text style={styles.label}>Confirmar nueva contraseña</Text>
+            <TextInput
+              style={styles.input}
+              value={confirmPassword}
+              onChangeText={setConfirmPassword}
+              placeholder="••••••••"
+              placeholderTextColor={COLORS.textSecondary}
+              secureTextEntry
+            />
+
+            <Pressable
+              style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
+              onPress={handleChangePassword}
+            >
+              <Lock size={18} color={COLORS.surface} strokeWidth={2.2} />
+              <Text style={styles.saveButtonText}>Actualizar contraseña</Text>
             </Pressable>
           </View>
         </View>
-
-        <View style={styles.sectionCard}>
-          <View style={styles.sectionRow}>
-            <View style={[styles.sectionIcon, { backgroundColor: COLORS.goldLight }]}>
-              <Bell size={20} color={COLORS.gold} strokeWidth={2} />
-            </View>
-            <View style={styles.sectionBody}>
-              <Text style={styles.sectionLabel}>Notificaciones por correo</Text>
-              <Text style={styles.sectionHint}>Resumen de pagos y avances</Text>
-            </View>
-            <Switch
-              value={emailNotifications}
-              onValueChange={setEmailNotifications}
-              trackColor={{ false: COLORS.border, true: COLORS.gold }}
-              thumbColor={COLORS.surface}
-            />
-          </View>
-          <View style={styles.sectionDivider} />
-          <View style={styles.sectionRow}>
-            <View style={[styles.sectionIcon, { backgroundColor: COLORS.goldLight }]}>
-              <Bell size={20} color={COLORS.gold} strokeWidth={2} />
-            </View>
-            <View style={styles.sectionBody}>
-              <Text style={styles.sectionLabel}>Notificaciones push</Text>
-              <Text style={styles.sectionHint}>Alertas en tiempo real</Text>
-            </View>
-            <Switch
-              value={pushNotifications}
-              onValueChange={setPushNotifications}
-              trackColor={{ false: COLORS.border, true: COLORS.gold }}
-              thumbColor={COLORS.surface}
-            />
-          </View>
-        </View>
-
-        <View style={styles.sectionCard}>
-          <Pressable style={styles.sectionRow} onPress={() => handleLink('Términos y Condiciones')}>
-            <View style={[styles.sectionIcon, { backgroundColor: COLORS.goldLight }]}>
-              <FileText size={20} color={COLORS.gold} strokeWidth={2} />
-            </View>
-            <Text style={styles.sectionLabel}>Soporte y Legales</Text>
-            <ChevronRight size={18} color={COLORS.textSecondary} />
-          </Pressable>
-          <View style={styles.sectionDivider} />
-          <Pressable
-            style={styles.linkRow}
-            onPress={() => handleLink('Términos y Condiciones')}
-          >
-            <Text style={styles.linkText}>Términos y Condiciones</Text>
-            <ChevronRight size={16} color={COLORS.textSecondary} />
-          </Pressable>
-          <Pressable style={styles.linkRow} onPress={() => handleLink('Aviso de Privacidad')}>
-            <Text style={styles.linkText}>Aviso de Privacidad</Text>
-            <ChevronRight size={16} color={COLORS.textSecondary} />
-          </Pressable>
-          <Pressable style={styles.linkRow} onPress={() => handleLink('Contacto DEVIO')}>
-            <Text style={styles.linkText}>Contacto DEVIO</Text>
-            <ChevronRight size={16} color={COLORS.textSecondary} />
-          </Pressable>
-        </View>
-
-        <Pressable
-          style={({ pressed }) => [styles.logoutButton, pressed && styles.logoutPressed]}
-          onPress={logout}
-        >
-          <LogOut size={18} color={COLORS.danger} strokeWidth={2.2} />
-          <Text style={styles.logoutText}>Cerrar Sesión</Text>
-        </Pressable>
-
-        <Text style={styles.versionText}>DEVIO Mobile v{APP_VERSION}</Text>
-      </ScrollView>
+      </Modal>
     </View>
   );
 }
@@ -217,181 +301,211 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  header: {
-    backgroundColor: COLORS.primary,
+  topBar: {
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.sm,
-    paddingBottom: SPACING.lg,
+    paddingBottom: SPACING.md,
   },
-  headerTitle: {
-    fontSize: 20,
+  topBarTitle: {
+    fontSize: 22,
     fontWeight: '700',
-    color: COLORS.surface,
+    color: COLORS.textPrimary,
   },
   content: {
     padding: SPACING.lg,
-    paddingBottom: SPACING.xl,
+    paddingBottom: 110,
   },
-  profileCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+  avatarSection: {
     alignItems: 'center',
-    paddingVertical: SPACING.lg,
+    marginBottom: SPACING.lg,
+  },
+  avatarWrap: {
+    position: 'relative',
+  },
+  avatar: {
+    width: 96,
+    height: 96,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarImage: {
+    width: 96,
+    height: 96,
+    borderRadius: RADIUS.pill,
+  },
+  avatarText: {
+    fontSize: 34,
+    fontWeight: '800',
+    color: COLORS.gold,
+  },
+  avatarEdit: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.primary,
+    borderWidth: 3,
+    borderColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarName: {
+    marginTop: SPACING.md,
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  avatarEditLink: {
+    marginTop: SPACING.xs,
+  },
+  avatarEditText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.gold,
+  },
+  sectionCard: {
+    backgroundColor: COLORS.surface,
+    borderRadius: 16,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
   },
-  avatar: {
-    width: 84,
-    height: 84,
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  avatarText: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: COLORS.gold,
-  },
-  name: {
-    marginTop: SPACING.md,
-    fontSize: 20,
+  sectionTitle: {
+    fontSize: 18,
     fontWeight: '700',
     color: COLORS.textPrimary,
+    marginBottom: SPACING.md,
   },
-  email: {
-    marginTop: 2,
-    fontSize: 14,
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
     color: COLORS.textSecondary,
+    marginBottom: SPACING.xs,
+    marginTop: SPACING.sm,
   },
-  roleBadge: {
-    marginTop: SPACING.md,
-    backgroundColor: COLORS.goldLight,
-    borderRadius: RADIUS.pill,
+  input: {
+    height: 50,
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.surface,
     paddingHorizontal: SPACING.md,
-    paddingVertical: 6,
+    fontSize: 15,
+    color: COLORS.textPrimary,
   },
-  roleText: {
-    fontSize: 12,
+  passwordRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.md,
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 14,
+  },
+  passwordRowText: {
+    flex: 1,
+    marginLeft: SPACING.sm,
+    fontSize: 15,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  saveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+    marginTop: SPACING.md,
+  },
+  saveButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
     fontWeight: '700',
-    color: COLORS.primary,
+    color: COLORS.surface,
   },
-  sectionTitle: {
+  deleteRow: {
+    alignItems: 'center',
+    paddingVertical: SPACING.md,
+    marginTop: SPACING.sm,
+  },
+  deleteText: {
     fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.danger,
+  },
+  moduleLabel: {
+    fontSize: 13,
     fontWeight: '700',
     color: COLORS.textSecondary,
     textTransform: 'uppercase',
-    marginTop: SPACING.lg,
     marginBottom: SPACING.sm,
   },
-  sectionCard: {
-    backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginBottom: SPACING.md,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  sectionRow: {
+  linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: SPACING.md,
     paddingVertical: SPACING.md,
   },
-  sectionBody: {
-    flex: 1,
-    marginLeft: SPACING.md,
-  },
-  sectionIcon: {
+  linkIcon: {
     width: 38,
     height: 38,
-    borderRadius: RADIUS.sm,
+    borderRadius: RADIUS.md,
+    backgroundColor: COLORS.goldLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionLabel: {
+  linkLabel: {
     flex: 1,
     marginLeft: SPACING.md,
     fontSize: 15,
     fontWeight: '600',
     color: COLORS.textPrimary,
   },
-  sectionHint: {
-    fontSize: 12,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  sectionDivider: {
+  linkDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.border,
-    marginLeft: SPACING.md,
+    marginLeft: SPACING.lg,
   },
-  chevronOpen: {
-    transform: [{ rotate: '90deg' }],
+  pressed: {
+    opacity: 0.85,
   },
-  personalDetails: {
-    paddingHorizontal: SPACING.md,
-    paddingBottom: SPACING.md,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 6,
-  },
-  detailText: {
+  modalBackdrop: {
     flex: 1,
-    marginLeft: SPACING.sm,
-    fontSize: 13,
-    color: COLORS.textSecondary,
+    backgroundColor: 'rgba(31,54,82,0.5)',
+    justifyContent: 'flex-end',
   },
-  linkRow: {
+  modalCard: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: SPACING.lg,
+    paddingBottom: SPACING.xl,
+  },
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.md,
-    marginLeft: SPACING.lg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.border,
+    marginBottom: SPACING.md,
   },
-  linkText: {
-    fontSize: 14,
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  logoutButton: {
-    flexDirection: 'row',
+  modalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: SPACING.md,
-    height: 52,
-    borderRadius: RADIUS.pill,
-    borderWidth: 1.5,
-    borderColor: COLORS.danger,
-    backgroundColor: COLORS.surface,
-  },
-  logoutPressed: {
-    backgroundColor: '#FDEBEB',
-  },
-  logoutText: {
-    marginLeft: SPACING.sm,
-    fontSize: 16,
-    fontWeight: '700',
-    color: COLORS.danger,
-  },
-  versionText: {
-    marginTop: SPACING.lg,
-    textAlign: 'center',
-    fontSize: 12,
-    color: COLORS.textSecondary,
   },
 });

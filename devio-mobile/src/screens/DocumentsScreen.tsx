@@ -10,32 +10,34 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { Download, Eye, FileText, Search, X } from 'lucide-react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { ChevronLeft, Download, FileText, Search, X } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import type { Document } from '../types';
 import type { RootStackParamList } from '../navigation/types';
-import AppHeader from '../components/AppHeader';
+import EmptyState from '../components/EmptyState';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Documents'>;
 
 type DocumentItem = Document & { size?: string };
 
-const FILTERS = ['Todos', 'Contratos', 'Recibos', 'Planos'] as const;
-type Filter = (typeof FILTERS)[number];
-
-function formatDate(iso: string): string {
+function formatDateTime(iso: string): string {
   if (!iso) return '';
-  const [y, m, d] = iso.split('-');
-  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-  return `${d} ${months[Number(m) - 1]} ${y}`;
+  const date = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return iso;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  let hours = date.getHours();
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const meridiem = hours >= 12 ? 'pm' : 'am';
+  hours = hours % 12 || 12;
+  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} ${hours}:${minutes} ${meridiem}`;
 }
 
 export default function DocumentsScreen({ navigation }: Props) {
   const { selectedProperty, documents, loadDocuments, dataLoading } = useApp();
-  const [filter, setFilter] = useState<Filter>('Todos');
   const [query, setQuery] = useState('');
   const [refreshing, setRefreshing] = useState(false);
   const [activeDoc, setActiveDoc] = useState<DocumentItem | null>(null);
@@ -51,12 +53,11 @@ export default function DocumentsScreen({ navigation }: Props) {
 
   const filtered: DocumentItem[] = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return documents.filter((doc) => {
-      const matchesFilter = filter === 'Todos' || doc.category === filter;
-      const matchesQuery = q.length === 0 || doc.title.toLowerCase().includes(q);
-      return matchesFilter && matchesQuery;
-    });
-  }, [filter, query, documents]);
+    if (q.length === 0) {
+      return documents;
+    }
+    return documents.filter((doc) => doc.title.toLowerCase().includes(q));
+  }, [query, documents]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -66,67 +67,54 @@ export default function DocumentsScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
-  const handleAction = (doc: DocumentItem) => {
-    setActiveDoc(doc);
-  };
-
   const handleDownload = (doc: DocumentItem) => {
     Alert.alert('Descarga', `Descargando "${doc.title}".`);
   };
 
   const renderDocument = ({ item }: { item: DocumentItem }) => (
-    <View style={styles.docCard}>
-      <View style={styles.pdfIcon}>
-        <FileText size={22} color="#FFFFFF" strokeWidth={2} />
+    <Pressable
+      style={({ pressed }) => [styles.docCard, pressed && styles.pressed]}
+      onPress={() => setActiveDoc(item)}
+    >
+      <View style={styles.iconChip}>
+        <FileText size={22} color={COLORS.primary} strokeWidth={2} />
       </View>
       <View style={styles.docInfo}>
         <Text style={styles.docTitle} numberOfLines={1}>
           {item.title}
         </Text>
-        <Text style={styles.docMeta}>
-          {item.category} · {formatDate(item.createdDate)}
-        </Text>
-        {item.size ? <Text style={styles.docSize}>{item.size}</Text> : null}
+        <Text style={styles.docDate}>{formatDateTime(item.createdDate)}</Text>
       </View>
-      <Pressable
-        style={({ pressed }) => [styles.viewButton, pressed && styles.viewPressed]}
-        onPress={() => handleAction(item)}
-      >
-        <Download size={14} color={COLORS.surface} strokeWidth={2.4} />
-        <Text style={styles.viewText}>Ver / Descargar</Text>
-      </Pressable>
-    </View>
+      {item.size ? <Text style={styles.docSize}>{item.size}</Text> : null}
+    </Pressable>
   );
 
   return (
     <View style={styles.container}>
-      <AppHeader title="Expediente Digital" onBack={() => navigation.goBack()} />
+      <SafeAreaView edges={['top']}>
+        <View style={styles.topBar}>
+          <Pressable
+            style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Regresar"
+          >
+            <ChevronLeft size={22} color={COLORS.primary} />
+          </Pressable>
+          <Text style={styles.topBarTitle}>Documentos</Text>
+        </View>
+      </SafeAreaView>
 
       <View style={styles.searchArea}>
         <View style={styles.searchBox}>
-          <Search size={18} color={COLORS.textSecondary} strokeWidth={2} />
+          <Search size={18} color="#94A3B8" strokeWidth={2} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Buscar documento..."
+            placeholder="Buscar Documentos"
             placeholderTextColor={COLORS.textSecondary}
             value={query}
             onChangeText={setQuery}
             autoCorrect={false}
           />
-        </View>
-        <View style={styles.filters}>
-          {FILTERS.map((f) => {
-            const isActive = filter === f;
-            return (
-              <Pressable
-                key={f}
-                style={[styles.filterTab, isActive && styles.filterTabActive]}
-                onPress={() => setFilter(f)}
-              >
-                <Text style={[styles.filterText, isActive && styles.filterTextActive]}>{f}</Text>
-              </Pressable>
-            );
-          })}
         </View>
       </View>
 
@@ -135,7 +123,7 @@ export default function DocumentsScreen({ navigation }: Props) {
           {[0, 1, 2].map((key) => (
             <SkeletonCard key={key}>
               <View style={styles.skeletonRow}>
-                <SkeletonBlock width={44} height={44} borderRadius={12} />
+                <SkeletonBlock width={48} height={48} borderRadius={12} />
                 <View style={styles.skeletonCol}>
                   <SkeletonBlock width="80%" height={14} />
                   <View style={{ height: 8 }} />
@@ -161,9 +149,11 @@ export default function DocumentsScreen({ navigation }: Props) {
             />
           }
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyText}>No se encontraron documentos.</Text>
-            </View>
+            <EmptyState
+              icon={FileText}
+              title="No se encontraron documentos"
+              description="Intenta con otro término de búsqueda"
+            />
           }
         />
       )}
@@ -177,7 +167,7 @@ export default function DocumentsScreen({ navigation }: Props) {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalHeaderTitle}>Vista previa del documento</Text>
+              <Text style={styles.modalHeaderTitle}>Documento</Text>
               <Pressable
                 style={styles.modalClose}
                 onPress={() => setActiveDoc(null)}
@@ -190,18 +180,16 @@ export default function DocumentsScreen({ navigation }: Props) {
             {activeDoc ? (
               <>
                 <View style={styles.previewArea}>
-                  <FileText size={64} color={COLORS.danger} strokeWidth={1.4} />
+                  <View style={styles.previewIconChip}>
+                    <FileText size={40} color={COLORS.primary} strokeWidth={1.6} />
+                  </View>
                   <Text style={styles.previewHint}>Vista previa PDF</Text>
                 </View>
 
                 <Text style={styles.docModalTitle}>{activeDoc.title}</Text>
                 <View style={styles.docMetaRow}>
-                  <Text style={styles.docMetaLabel}>Categoría</Text>
-                  <Text style={styles.docMetaValue}>{activeDoc.category}</Text>
-                </View>
-                <View style={styles.docMetaRow}>
                   <Text style={styles.docMetaLabel}>Fecha</Text>
-                  <Text style={styles.docMetaValue}>{formatDate(activeDoc.createdDate)}</Text>
+                  <Text style={styles.docMetaValue}>{formatDateTime(activeDoc.createdDate)}</Text>
                 </View>
                 <View style={styles.docMetaRow}>
                   <Text style={styles.docMetaLabel}>Tamaño</Text>
@@ -212,19 +200,8 @@ export default function DocumentsScreen({ navigation }: Props) {
                   style={({ pressed }) => [styles.modalButton, pressed && styles.modalButtonPressed]}
                   onPress={() => handleDownload(activeDoc)}
                 >
-                  <Eye size={16} color={COLORS.surface} strokeWidth={2.2} />
-                  <Text style={styles.modalButtonText}>Ver documento completo</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.modalButton,
-                    styles.modalButtonSecondary,
-                    pressed && styles.modalButtonPressed,
-                  ]}
-                  onPress={() => handleDownload(activeDoc)}
-                >
-                  <Download size={16} color={COLORS.primary} strokeWidth={2.2} />
-                  <Text style={styles.modalButtonSecondaryText}>Descargar PDF</Text>
+                  <Download size={16} color={COLORS.surface} strokeWidth={2.2} />
+                  <Text style={styles.modalButtonText}>Descargar PDF</Text>
                 </Pressable>
               </>
             ) : null}
@@ -240,6 +217,34 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.sm,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  topBarTitle: {
+    marginLeft: SPACING.md,
+    fontSize: 22,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  pressed: {
+    opacity: 0.85,
+  },
   searchArea: {
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.md,
@@ -248,11 +253,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderRadius: 16,
     paddingHorizontal: SPACING.md,
-    height: 48,
+    height: 52,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
   searchInput: {
     flex: 1,
@@ -260,35 +268,9 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: COLORS.textPrimary,
   },
-  filters: {
-    flexDirection: 'row',
-    marginTop: SPACING.md,
-    marginBottom: SPACING.sm,
-  },
-  filterTab: {
-    flex: 1,
-    paddingVertical: SPACING.sm,
-    borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginHorizontal: 3,
-    alignItems: 'center',
-  },
-  filterTabActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
-  },
-  filterText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-  },
-  filterTextActive: {
-    color: COLORS.surface,
-  },
   list: {
     paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.md,
     paddingBottom: SPACING.xl,
   },
   skeletonRow: {
@@ -303,22 +285,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.surface,
-    borderRadius: RADIUS.lg,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderRadius: 16,
     padding: SPACING.md,
     marginBottom: SPACING.md,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  pdfIcon: {
-    width: 44,
-    height: 44,
+  iconChip: {
+    width: 48,
+    height: 48,
     borderRadius: RADIUS.md,
-    backgroundColor: COLORS.danger,
+    backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -327,46 +307,20 @@ const styles = StyleSheet.create({
     marginLeft: SPACING.md,
   },
   docTitle: {
-    fontSize: 14,
+    fontSize: 16,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  docMeta: {
-    fontSize: 12,
+  docDate: {
+    fontSize: 13,
     color: COLORS.textSecondary,
-    marginTop: 2,
+    marginTop: 3,
   },
   docSize: {
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.gold,
-    marginTop: 2,
-  },
-  viewButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.primary,
-    borderRadius: RADIUS.pill,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: 8,
     marginLeft: SPACING.sm,
-  },
-  viewPressed: {
-    opacity: 0.85,
-  },
-  viewText: {
-    marginLeft: 5,
-    fontSize: 12,
-    fontWeight: '700',
-    color: COLORS.surface,
-  },
-  empty: {
-    padding: SPACING.xl,
-    alignItems: 'center',
-  },
-  emptyText: {
-    color: COLORS.textSecondary,
-    fontSize: 14,
   },
   modalBackdrop: {
     flex: 1,
@@ -400,7 +354,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   previewArea: {
-    height: 160,
+    height: 170,
     borderRadius: RADIUS.lg,
     backgroundColor: COLORS.background,
     borderWidth: 1,
@@ -408,6 +362,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: SPACING.md,
+  },
+  previewIconChip: {
+    width: 72,
+    height: 72,
+    borderRadius: RADIUS.lg,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   previewHint: {
     marginTop: SPACING.sm,
@@ -423,7 +385,7 @@ const styles = StyleSheet.create({
   docMetaRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: COLORS.border,
   },
@@ -443,7 +405,7 @@ const styles = StyleSheet.create({
     height: 50,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.primary,
-    marginTop: SPACING.md,
+    marginTop: SPACING.lg,
   },
   modalButtonPressed: {
     opacity: 0.85,
@@ -453,15 +415,5 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: COLORS.surface,
-  },
-  modalButtonSecondary: {
-    backgroundColor: COLORS.goldLight,
-    marginTop: SPACING.sm,
-  },
-  modalButtonSecondaryText: {
-    marginLeft: 6,
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.primary,
   },
 });
