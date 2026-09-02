@@ -1,5 +1,5 @@
 import type { User } from '../types';
-import { matchUnitsToUser } from './bubbleAdapter';
+import { formatImageUrl, matchUnitsToUser } from './bubbleAdapter';
 
 const TEST_BASE_URL = 'https://app.deviomx.com/version-test/api/1.1';
 const LIVE_BASE_URL = 'https://app.deviomx.com/api/1.1';
@@ -8,6 +8,16 @@ const API_KEY = process.env.EXPO_PUBLIC_BUBBLE_API_KEY || '';
 const BASE_URL =
   process.env.EXPO_PUBLIC_BUBBLE_BASE_URL ||
   (process.env.EXPO_PUBLIC_BUBBLE_ENV === 'live' ? LIVE_BASE_URL : TEST_BASE_URL);
+
+let activeBaseUrl: string = BASE_URL;
+
+export function getActiveBaseUrl(): string {
+  return activeBaseUrl;
+}
+
+export function setActiveBaseUrl(baseUrl: string): void {
+  activeBaseUrl = baseUrl || BASE_URL;
+}
 
 export class BubbleApiError extends Error {
   statusCode?: number;
@@ -76,7 +86,11 @@ export function filterRawByValue(rawList: Raw[], keys: string[], values: string[
   });
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  baseUrl: string = activeBaseUrl,
+): Promise<T> {
   if (!API_KEY) {
     throw new BubbleApiError(
       'Bubble API credentials are missing. Add EXPO_PUBLIC_BUBBLE_API_KEY to your .env file.',
@@ -85,7 +99,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   let response: Response;
   try {
-    response = await fetch(`${BASE_URL}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       ...options,
       headers: {
         Authorization: `Bearer ${API_KEY}`,
@@ -123,14 +137,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new BubbleApiError(message, response.status, details);
   }
 
-  return (await response.json()) as T;
+  const text = await response.text();
+  if (!text) {
+    return undefined as T;
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    return undefined as T;
+  }
 }
 
-async function fetchList(candidates: string[]): Promise<Raw[]> {
+async function fetchList(candidates: string[], baseUrl: string = activeBaseUrl): Promise<Raw[]> {
   let lastError: BubbleApiError | null = null;
   for (const path of candidates) {
     try {
-      const data = await request<BubbleListResponse>(path);
+      const data = await request<BubbleListResponse>(path, {}, baseUrl);
       return data.response?.results ?? [];
     } catch (error) {
       if (error instanceof BubbleApiError && error.statusCode === 404) {
@@ -231,36 +253,54 @@ export async function fetchRawSalesForUser(userId?: string): Promise<Raw[]> {
   });
 }
 
-export async function fetchRawUnits(userId?: string, preFetchedSales?: Raw[]): Promise<Raw[]> {
+async function constraintQueryUnit(key: string, value: string): Promise<Raw[]> {
+  try {
+    const constraints = encodeURIComponent(
+      JSON.stringify([{ key, constraint_type: 'equals', value }]),
+    );
+    return await fetchList(
+      UNIT_PATH.map((path) => `${path}?constraints=${constraints}&limit=100`),
+    );
+  } catch {
+    return [];
+  }
+}
+
+async function fetchUnitById(unitId: string): Promise<Raw | null> {
+  try {
+    const data = await request<BubbleListResponse>(`/obj/Unit/${unitId}`);
+    const response = data.response;
+    if (!response) return null;
+    if (Array.isArray((response as { results?: Raw[] }).results)) {
+      return (response as { results: Raw[] }).results[0] ?? null;
+    }
+    if (typeof response === 'object') {
+      return response as Raw;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchRawUnits(userId?: string): Promise<Raw[]> {
   const rows = await fetchList(UNIT_PATH);
   if (!userId) {
     return rows;
   }
 
-  // 1) Resolve units through the sales join table (client -> unidad).
-  let sales = preFetchedSales;
-  if (!sales) {
-    try {
-      sales = await fetchRawSalesForUser(userId);
-    } catch {
-      sales = [];
-    }
-  }
-  const saleUnitIds = extractSaleUnitIds(sales);
-  if (saleUnitIds.length > 0) {
-    const unitIdSet = new Set(saleUnitIds);
-    const matchedBySale = rows.filter((unit) => unitIdSet.has(String(unit._id)));
-    if (matchedBySale.length > 0) {
-      if (__DEV__) {
-        console.log(
-          `[BubbleSales] sales: ${sales.length} | resolved units via sales: ${matchedBySale.length}`,
-        );
-      }
-      return matchedBySale;
+  const matched = new Map<string, Raw>();
+
+  // 1) Strategy A: direct constraint queries (client, then cliente, then usuario/user).
+  for (const key of ['client', 'cliente', 'usuario', 'user']) {
+    const byConstraint = await constraintQueryUnit(key, userId);
+    if (byConstraint.length > 0) {
+      byConstraint.forEach((unit) => matched.set(String(unit._id), unit));
+      break;
     }
   }
 
-  // 2) Fallback: dual-direction User <-> Unit matching.
+  // 2) Strategy B: user's own unit arrays (unidades / units / unidad).
   let rawUser: Raw | null = null;
   try {
     const users = await fetchList(USER_PATH);
@@ -268,14 +308,43 @@ export async function fetchRawUnits(userId?: string, preFetchedSales?: Raw[]): P
   } catch {
     rawUser = null;
   }
-  const userEmail = rawUser ? (nestedAuthEmail(rawUser) || findUserEmail(rawUser)) : '';
-  const matched = matchUnitsToUser(rows, rawUser, userId, userEmail);
-  if (__DEV__) {
-    console.log(
-      `[BubbleAuth] User ID: ${userId} | User Email: ${userEmail || 'N/A'} | Linked Unit Count: ${matched.length}`,
+  const unitRefs = extractRefIds(rawUser?.['unidades'] ?? rawUser?.['units'] ?? rawUser?.['Unidades'] ?? rawUser?.['Units'] ?? rawUser?.['unidad'] ?? rawUser?.['Unidad'] ?? rawUser?.['assigned_units']);
+  for (const ref of unitRefs) {
+    const byId = await fetchUnitById(ref);
+    if (byId) {
+      matched.set(String(byId._id), byId);
+    }
+    const byValue = rows.find((unit) => Object.values(unit).some((v) => String(v) === ref));
+    if (byValue) {
+      matched.set(String(byValue._id), byValue);
+    }
+  }
+
+  // 3) Sales join table (client -> unidad).
+  try {
+    const sales = await fetchRawSalesForUser(userId);
+    const saleUnitIds = extractSaleUnitIds(sales);
+    rows
+      .filter((unit) => saleUnitIds.includes(String(unit._id)))
+      .forEach((unit) => matched.set(String(unit._id), unit));
+  } catch {
+    // Best-effort; continue with other strategies.
+  }
+
+  // 4) Final fallback: dual-direction User <-> Unit matching (incl. admin inventory).
+  if (matched.size === 0) {
+    const userEmail = rawUser ? (nestedAuthEmail(rawUser) || findUserEmail(rawUser)) : '';
+    matchUnitsToUser(rows, rawUser, userId, userEmail).forEach((unit) =>
+      matched.set(String(unit._id), unit),
     );
   }
-  return matched;
+
+  if (__DEV__) {
+    console.log(
+      `[BubbleAuth] User ID: ${userId} | User Email: ${rawUser ? (nestedAuthEmail(rawUser) || findUserEmail(rawUser)) : 'N/A'} | Linked Unit Count: ${matched.size}`,
+    );
+  }
+  return Array.from(matched.values());
 }
 
 export async function fetchRawProjects(): Promise<Raw[]> {
@@ -303,6 +372,35 @@ export async function fetchRawDocuments(filterValues: string[] = []): Promise<Ra
 }
 
 export async function login(email: string, password: string): Promise<User> {
+  // Try the configured environment first, then automatically fall back to the
+  // alternate Live/Development environment so credentials for either backend
+  // authenticate seamlessly.
+  const baseCandidates: string[] = [BASE_URL];
+  const alternateBase = BASE_URL === LIVE_BASE_URL ? TEST_BASE_URL : LIVE_BASE_URL;
+  if (alternateBase && alternateBase !== BASE_URL) {
+    baseCandidates.push(alternateBase);
+  }
+
+  let lastError: unknown = null;
+  for (const baseUrl of baseCandidates) {
+    try {
+      const user = await authenticateAgainst(email, password, baseUrl);
+      activeBaseUrl = baseUrl;
+      if (__DEV__ && baseUrl !== BASE_URL) {
+        console.log(`[BubbleEnv] Authenticated against alternate environment: ${baseUrl}`);
+      }
+      return user;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new BubbleApiError('Credenciales incorrectas');
+}
+
+async function authenticateAgainst(email: string, password: string, baseUrl: string): Promise<User> {
   // 1) Attempt password validation workflows first (if configured in Bubble).
   const workflowCandidates: Array<{ path: string; body: { email: string; password: string } }> = [
     { path: '/wf/login', body: { email, password } },
@@ -313,10 +411,14 @@ export async function login(email: string, password: string): Promise<User> {
   let lastError: unknown = null;
   for (const candidate of workflowCandidates) {
     try {
-      const data = await request<BubbleLoginResponse>(candidate.path, {
-        method: 'POST',
-        body: JSON.stringify(candidate.body),
-      });
+      const data = await request<BubbleLoginResponse>(
+        candidate.path,
+        {
+          method: 'POST',
+          body: JSON.stringify(candidate.body),
+        },
+        baseUrl,
+      );
       const token = data?.response?.token ?? data?.response?.accessToken;
       if (token || data?.response?.user) {
         const rawUser = (data?.response?.user ?? {}) as Raw;
@@ -329,7 +431,7 @@ export async function login(email: string, password: string): Promise<User> {
           assignedProperties: extractRefIds(
             rawUser['Proyectos Asignados'] ?? rawUser['Unidades'] ?? rawUser.assignedProperties,
           ),
-          photoUrl: toString(rawUser['foto de perfil'] ?? rawUser.avatar ?? rawUser.Avatar),
+          photoUrl: formatImageUrl(toString(rawUser['foto de perfil'] ?? rawUser.avatar ?? rawUser.Avatar)) ?? '',
         };
       }
     } catch (error) {
@@ -348,7 +450,7 @@ export async function login(email: string, password: string): Promise<User> {
   }
 
   // 2) Verify the user profile exists via Data API email lookup.
-  const userRow = await queryUserByEmail(email);
+  const userRow = await queryUserByEmail(email, baseUrl);
   if (!userRow) {
     if (lastError instanceof BubbleApiError && lastError.statusCode === 401) {
       throw new BubbleApiError('Credenciales incorrectas', 401, lastError.details);
@@ -368,7 +470,7 @@ export async function login(email: string, password: string): Promise<User> {
     assignedProperties: extractRefIds(
       userRow['Proyectos Asignados'] ?? userRow['Unidades'] ?? userRow.proyectos_asignados,
     ),
-    photoUrl: toString(userRow['foto de perfil'] ?? userRow.avatar ?? userRow.Avatar),
+    photoUrl: formatImageUrl(toString(userRow['foto de perfil'] ?? userRow.avatar ?? userRow.Avatar)) ?? '',
   };
 }
 
@@ -431,7 +533,7 @@ function isUserActive(row: Raw): boolean {
   );
 }
 
-async function queryUserByEmail(email: string): Promise<Raw | null> {
+async function queryUserByEmail(email: string, baseUrl: string = BASE_URL): Promise<Raw | null> {
   const target = email.trim().toLowerCase();
 
   // 1) Single constraint-based lookup on the primary `email` field.
@@ -439,6 +541,7 @@ async function queryUserByEmail(email: string): Promise<Raw | null> {
     const constraints = buildEmailConstraint('email', email.trim());
     const rows = await fetchList(
       USER_PATH.map((path) => `${path}?constraints=${encodeURIComponent(constraints)}&limit=5`),
+      baseUrl,
     );
     const match = rows.find((row) => emailFieldValue(row, target) === target);
     if (match) {
@@ -452,7 +555,7 @@ async function queryUserByEmail(email: string): Promise<Raw | null> {
   //    (email, Correo, Mail, User Email) plus Bubble's nested
   //    authentication.email.email structure.
   try {
-    const rows = await fetchList(USER_PATH);
+    const rows = await fetchList(USER_PATH, baseUrl);
     const match = rows.find((row) => emailFieldValue(row, target) === target);
     return match ?? null;
   } catch {
@@ -469,6 +572,32 @@ export async function updateUserPushToken(userId: string, pushToken: string): Pr
     body: JSON.stringify({
       'Push notification token': pushToken,
     }),
+  });
+}
+
+export interface ProfileUpdates {
+  name?: string;
+  photoUrl?: string;
+}
+
+export async function updateUserProfile(userId: string, updates: ProfileUpdates): Promise<void> {
+  if (!userId) {
+    throw new BubbleApiError('No se puede actualizar: falta el ID de usuario.');
+  }
+  const body: Raw = {};
+  if (updates.name !== undefined && updates.name.trim() !== '') {
+    body['Nombre'] = updates.name.trim();
+  }
+  if (updates.photoUrl !== undefined) {
+    const normalized = formatImageUrl(updates.photoUrl) ?? '';
+    body['foto de perfil'] = normalized;
+  }
+  if (Object.keys(body).length === 0) {
+    return;
+  }
+  await request<void>(`/obj/User/${userId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
   });
 }
 

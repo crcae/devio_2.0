@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TriangleAlert } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
@@ -41,6 +41,11 @@ export default class ErrorBoundary extends React.Component<
       return (
         <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
           <View style={styles.header}>
+            <Image
+              source={require('../../assets/devio-logo.png')}
+              style={styles.headerLogo}
+              resizeMode="contain"
+            />
             <Text style={styles.logo}>DEVIO</Text>
           </View>
 
@@ -78,6 +83,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SPACING.sm,
+  },
+  headerLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 7,
   },
   logo: {
     fontSize: 24,

@@ -3,7 +3,6 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ArrowLeft } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
-import EnvBadge from './EnvBadge';
 
 interface AppHeaderProps {
   title: string;
@@ -35,7 +34,7 @@ export default function AppHeader({ title, subtitle, onBack }: AppHeaderProps) {
           ) : null}
         </View>
 
-        <EnvBadge />
+        <View style={styles.rightSpacer} />
       </View>
     </SafeAreaView>
   );
@@ -76,5 +75,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: COLORS.goldLight,
     marginTop: 2,
+  },
+  rightSpacer: {
+    width: 40,
   },
 });

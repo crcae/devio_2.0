@@ -21,7 +21,10 @@ import {
   fetchRawProjects,
   fetchRawSalesForUser,
   fetchRawUnits,
+  getActiveBaseUrl,
   login as bubbleLogin,
+  setActiveBaseUrl,
+  updateUserProfile,
   updateUserPushToken,
 } from '../services/bubbleApi';
 import {
@@ -46,6 +49,7 @@ import {
 } from '../services/mockData';
 
 const SESSION_KEY = '@devio/session';
+const API_ENV_KEY = '@devio/api_env';
 
 const USE_MOCK_DATA = process.env.EXPO_PUBLIC_USE_MOCK_DATA === 'true';
 
@@ -65,6 +69,7 @@ interface AppContextValue {
   dataLoading: boolean;
   login: (email: string, password: string, useMock?: boolean) => Promise<void>;
   logout: () => void;
+  updateProfile: (updates: { name?: string; photoUrl?: string }) => Promise<void>;
   setSelectedProperty: (property: Unit) => void;
   loadUserProperties: (userId: string) => Promise<Unit[]>;
   loadPayments: (unitId: string) => Promise<void>;
@@ -301,6 +306,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setUser(loggedUser);
         hasHydratedRef.current = null;
         await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user: loggedUser }));
+        await AsyncStorage.setItem(API_ENV_KEY, getActiveBaseUrl());
         await hydrateUserData(loggedUser._id, loggedUser.assignedProperties?.[0]);
         void registerUserPushToken(loggedUser._id);
       } finally {
@@ -308,6 +314,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     },
     [hydrateUserData, registerUserPushToken],
+  );
+
+  const updateProfile = useCallback(
+    async (updates: { name?: string; photoUrl?: string }) => {
+      if (!user) {
+        throw new Error('No hay sesión activa.');
+      }
+      await updateUserProfile(user._id, updates);
+      const nextUser: User = {
+        ...user,
+        name: updates.name !== undefined && updates.name.trim() !== '' ? updates.name.trim() : user.name,
+        photoUrl: updates.photoUrl !== undefined ? updates.photoUrl : user.photoUrl,
+      };
+      setUser(nextUser);
+      await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user: nextUser }));
+    },
+    [user],
   );
 
   const logout = useCallback(async () => {
@@ -333,6 +356,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
+        const savedEnv = await AsyncStorage.getItem(API_ENV_KEY);
+        if (savedEnv) {
+          setActiveBaseUrl(savedEnv);
+        }
         const raw = await AsyncStorage.getItem(SESSION_KEY);
         if (raw) {
           const parsed = JSON.parse(raw) as { user?: User };
@@ -382,6 +409,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dataLoading,
       login,
       logout,
+      updateProfile,
       setSelectedProperty,
       loadUserProperties,
       loadPayments,
@@ -404,6 +432,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       dataLoading,
       login,
       logout,
+      updateProfile,
       setSelectedProperty,
       loadUserProperties,
       loadPayments,

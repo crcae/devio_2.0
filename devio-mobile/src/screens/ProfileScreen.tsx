@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Image,
   Linking,
@@ -38,14 +39,21 @@ function initialsOf(name: string | undefined): string {
 }
 
 export default function ProfileScreen() {
-  const { user, logout } = useApp();
+  const { user, logout, updateProfile } = useApp();
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
-  const [pickedAvatarUri, setPickedAvatarUri] = useState<string | null>(null);
+  const [pickedAvatarUri, setPickedAvatarUri] = useState<string | null>(user?.photoUrl ?? null);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  useEffect(() => {
+    if (user?.name) setName(user.name);
+    if (user?.email) setEmail(user.email);
+    if (user?.photoUrl !== undefined) setPickedAvatarUri(user.photoUrl || null);
+  }, [user]);
 
   const avatarUri = pickedAvatarUri ?? user?.photoUrl ?? null;
 
@@ -62,16 +70,36 @@ export default function ProfileScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets.length > 0) {
-      setPickedAvatarUri(result.assets[0].uri);
+      const uri = result.assets[0].uri;
+      setPickedAvatarUri(uri);
+      try {
+        await updateProfile({ photoUrl: uri });
+      } catch (err) {
+        console.warn('Error saving picked avatar:', err);
+      }
     }
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) {
       Alert.alert('Datos requeridos', 'El nombre no puede estar vacío.');
       return;
     }
-    Alert.alert('Guardado', 'Tu información personal se actualizó correctamente.');
+    setSavingProfile(true);
+    try {
+      await updateProfile({
+        name: name.trim(),
+        photoUrl: pickedAvatarUri ?? user?.photoUrl,
+      });
+      Alert.alert('Guardado', 'Tu información personal se actualizó correctamente.');
+    } catch (err) {
+      Alert.alert(
+        'Error al guardar',
+        err instanceof Error ? err.message : 'No fue posible actualizar tu perfil.',
+      );
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
   const handleChangePassword = () => {
@@ -188,9 +216,16 @@ export default function ProfileScreen() {
           <Pressable
             style={({ pressed }) => [styles.saveButton, pressed && styles.pressed]}
             onPress={handleSave}
+            disabled={savingProfile}
           >
-            <Save size={18} color={COLORS.surface} strokeWidth={2.2} />
-            <Text style={styles.saveButtonText}>Guardar</Text>
+            {savingProfile ? (
+              <ActivityIndicator color={COLORS.surface} />
+            ) : (
+              <>
+                <Save size={18} color={COLORS.surface} strokeWidth={2.2} />
+                <Text style={styles.saveButtonText}>Guardar</Text>
+              </>
+            )}
           </Pressable>
 
           <Pressable style={styles.deleteRow} onPress={handleDeleteAccount}>

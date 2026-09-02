@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   Pressable,
   StyleSheet,
   Switch,
@@ -13,7 +14,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Eye, EyeOff, FlaskConical, Lock, Mail } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
-import EnvBadge from '../components/EnvBadge';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -55,13 +55,12 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.branding}>
-        <View style={styles.brandRow}>
-          <View style={styles.brandSpacer} />
-          <Text style={styles.logo}>DEVIO</Text>
-          <View style={styles.badgeWrap}>
-            <EnvBadge />
-          </View>
-        </View>
+        <Image
+          source={require('../../assets/devio-logo.png')}
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
+        <Text style={styles.logo}>DEVIO</Text>
         <Text style={styles.heading}>Bienvenido a DEVIO</Text>
         <Text style={styles.subtitle}>Ingresa con los accesos proporcionados por tu asesor</Text>
       </View>
@@ -168,31 +167,24 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.lg,
     alignItems: 'center',
   },
-  brandRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  brandSpacer: {
-    width: 70,
-  },
-  badgeWrap: {
-    width: 70,
-    alignItems: 'flex-end',
+  logoImage: {
+    width: 68,
+    height: 68,
+    borderRadius: 14,
+    marginBottom: SPACING.sm,
   },
   logo: {
-    fontSize: 30,
+    fontSize: 26,
     fontWeight: '800',
     color: COLORS.surface,
-    letterSpacing: 5,
+    letterSpacing: 4,
     textAlign: 'center',
   },
   heading: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
     color: COLORS.surface,
-    marginTop: SPACING.lg,
+    marginTop: SPACING.md,
   },
   subtitle: {
     marginTop: SPACING.xs,

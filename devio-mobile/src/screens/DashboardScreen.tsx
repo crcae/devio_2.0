@@ -19,7 +19,6 @@ import type { Unit } from '../types';
 import { MOCK_PROPERTIES } from '../services/mockData';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
 import type { AdaptedProperty } from '../services/bubbleAdapter';
-import EnvBadge from '../components/EnvBadge';
 import EmptyState from '../components/EmptyState';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
 
@@ -146,8 +145,12 @@ export default function DashboardScreen({ navigation }: Props) {
       <SafeAreaView style={styles.topBar} edges={['top']}>
         <View style={styles.topBarRow}>
           <View style={styles.logoWrap}>
+            <Image
+              source={require('../../assets/devio-logo.png')}
+              style={styles.headerLogo}
+              resizeMode="contain"
+            />
             <Text style={styles.logo}>DEVIO</Text>
-            <EnvBadge />
           </View>
           <View style={styles.topBarActions}>
             <Pressable
@@ -165,7 +168,9 @@ export default function DashboardScreen({ navigation }: Props) {
               onPress={openProfileTab}
               accessibilityLabel="Perfil"
             >
-              {user?.name ? (
+              {user?.photoUrl ? (
+                <Image source={{ uri: user.photoUrl }} style={styles.avatarImage} />
+              ) : user?.name ? (
                 <Text style={styles.avatarInitial}>{user.name.charAt(0).toUpperCase()}</Text>
               ) : (
                 <User size={18} color={COLORS.primary} strokeWidth={2} />
@@ -279,6 +284,11 @@ const styles = StyleSheet.create({
     paddingTop: SPACING.sm,
     paddingBottom: SPACING.lg,
   },
+  headerLogo: {
+    width: 32,
+    height: 32,
+    borderRadius: 7,
+  },
   logo: {
     fontSize: 22,
     fontWeight: '800',
@@ -332,6 +342,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: RADIUS.pill,
   },
   avatarInitial: {
     color: COLORS.primary,

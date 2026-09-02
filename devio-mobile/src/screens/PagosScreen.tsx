@@ -14,7 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import type { FinancialSummary, Payment, PaymentStatus } from '../types';
-import { calculateOverdueBalance, calculatePaidPercentage, calculatePendingBalance, calculateTotalPaid } from '../services/bubbleAdapter';
+import { calculateOverdueBalance, calculatePaidPercentage, calculatePendingBalance, calculateSalePrice, calculateTotalPaid } from '../services/bubbleAdapter';
 import { MOCK_PAYMENT_CONCEPTS } from '../services/mockData';
 import type { RootStackParamList } from '../navigation/types';
 import AppHeader from '../components/AppHeader';
@@ -85,7 +85,7 @@ export default function PagosScreen({ navigation }: Props) {
       }
       return { totalPrice: 6000000, totalPaid: 300000, pendingBalance: 5700000, overdueBalance: 900000, paidPercentage: 5 };
     }
-    const totalPrice = payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPrice = calculateSalePrice(payments);
     const totalPaid = calculateTotalPaid(payments);
     const pendingBalance = calculatePendingBalance(payments);
     const overdueBalance = calculateOverdueBalance(payments);

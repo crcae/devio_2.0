@@ -59,6 +59,15 @@ function normKey(key: string): string {
     .replace(/[\s_]+/g, '');
 }
 
+export function formatImageUrl(rawUrl: string | null | undefined): string | null {
+  if (!rawUrl) return null;
+  const trimmed = rawUrl.trim();
+  if (trimmed.startsWith('//')) {
+    return `https:${trimmed}`;
+  }
+  return trimmed;
+}
+
 export function getField(raw: Raw, variants: string[]): unknown {
   const entries = Object.entries(raw).map(([k, v]) => ({ k, n: normKey(k), v }));
   for (const variant of variants) {
@@ -90,10 +99,12 @@ function toNumber(value: unknown, fallback = 0): number {
 
 function toUrlArray(value: unknown): AdaptedProgressPhoto[] {
   if (Array.isArray(value)) {
-    return value.map((item, index) => ({ id: `photo-${index}`, url: toString(item) })).filter((p) => p.url);
+    return value
+      .map((item, index) => ({ id: `photo-${index}`, url: formatImageUrl(toString(item)) ?? '' }))
+      .filter((photo) => photo.url);
   }
   if (typeof value === 'string' && value.trim() !== '') {
-    return [{ id: 'photo-0', url: value }];
+    return [{ id: 'photo-0', url: formatImageUrl(value) ?? '' }];
   }
   return [];
 }
@@ -135,6 +146,13 @@ function toPaymentStatus(value: unknown): PaymentStatus {
   return 'Pendiente';
 }
 
+function isActivePayment(raw: Raw): boolean {
+  const value = raw['activo'] ?? raw['Activo'] ?? raw['active'] ?? raw['Active'];
+  if (value === undefined || value === null) return true;
+  const normalized = String(value).toLowerCase();
+  return normalized === 'yes' || normalized === 'true' || normalized === 'si' || normalized === '1';
+}
+
 const SPECIALTY_FIELDS: Array<{ name: string; variants: string[] }> = [
   { name: 'Cimentación', variants: ['Cimentación', 'Cimentacion'] },
   { name: 'Estructura', variants: ['Estructura'] },
@@ -147,9 +165,9 @@ export function adaptBubbleProperty(
   rawProject?: Raw,
   saleIds: string[] = [],
 ): AdaptedProperty {
-  const heroImage = toString(getField(rawUnit, ['imagen', 'Imagen', 'Foto', 'Image', 'Imagen Principal', 'Hero Image']));
+  const heroImage = formatImageUrl(toString(getField(rawUnit, ['imagen', 'Imagen', 'Foto', 'Image', 'Imagen Principal', 'Hero Image']))) ?? '';
   const projectImage = rawProject
-    ? toString(getField(rawProject, ['imagen', 'Imagen', 'Imagen Principal', 'Hero Image', 'Image']))
+    ? formatImageUrl(toString(getField(rawProject, ['imagen', 'Imagen', 'Imagen Principal', 'Hero Image', 'Image']))) ?? ''
     : '';
   const totalPrice = toNumber(
     getField(rawUnit, ['Precio de Venta', 'Precio', 'Price', 'Total Price']),
@@ -205,56 +223,64 @@ export function adaptBubbleProperties(
 }
 
 export function adaptBubbleInstallments(rawList: Raw[]): Payment[] {
-  return rawList.map((raw, index) => {
-    const amount = toNumber(getField(raw, ['Monto programado', 'Cantidad', 'Monto', 'amount', 'Amount', 'Cantidad Total']));
-    const paid = toNumber(getField(raw, ['Monto pagado', 'Monto Pagado', 'Ya Pagado', 'Pagado', 'Paid Amount', 'Abonado', 'paid_amount']));
-    const pending = toNumber(getField(raw, ['restante', 'Restante', 'Falta por Pagar', 'Pendiente', 'Pending Amount']));
-    return {
-      _id: toString(getField(raw, ['_id', 'id']), `installment-${index}`),
-      unitId: toString(getField(raw, ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'project', 'Project'])),
-      amount,
-      interest: toNumber(getField(raw, ['interes_restante', 'Interes Restante', 'Intereses', 'Interest'])),
-      status: toPaymentStatus(getField(raw, ['Estatus', 'Status', 'status'])),
-      dueDate: toString(getField(raw, ['Fecha programada', 'due_date', 'Fecha Límite', 'Fecha Limite', 'Due Date', 'Fecha'])),
-      paidAmount: paid || (pending > 0 ? Math.min(amount, Math.max(amount - pending, 0)) : 0),
-      pendingAmount: pending || Math.max(amount - paid, 0),
-    };
-  });
+  return rawList
+    .filter(isActivePayment)
+    .map((raw, index) => {
+      const amount = toNumber(getField(raw, ['Monto programado', 'Cantidad', 'Monto', 'amount', 'Amount', 'Cantidad Total']));
+      const paid = toNumber(getField(raw, ['Monto pagado', 'Monto Pagado', 'Ya Pagado', 'Pagado', 'Paid Amount', 'Abonado', 'paid_amount']));
+      const pending = toNumber(getField(raw, ['restante', 'Restante', 'Falta por Pagar', 'Pendiente', 'Pending Amount']));
+      return {
+        _id: toString(getField(raw, ['_id', 'id']), `installment-${index}`),
+        unitId: toString(getField(raw, ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'project', 'Project'])),
+        amount,
+        interest: toNumber(getField(raw, ['interes_restante', 'Interes Restante', 'Intereses', 'Interest'])),
+        status: toPaymentStatus(getField(raw, ['Estatus', 'Status', 'status'])),
+        dueDate: toString(getField(raw, ['Fecha programada', 'due_date', 'Fecha Límite', 'Fecha Limite', 'Due Date', 'Fecha'])),
+        paidAmount: paid || (pending > 0 ? Math.min(amount, Math.max(amount - pending, 0)) : 0),
+        pendingAmount: pending || Math.max(amount - paid, 0),
+      };
+    });
 }
 
 export function adaptBubblePayments(rawList: Raw[]): AdaptedExecutedPayment[] {
-  return rawList.map((raw, index) => ({
-    id: toString(getField(raw, ['_id', 'id']), `pago-${index}`),
-    date: formatPaymentDate(toString(getField(raw, ['Fecha pago', 'Fecha Pago', 'Fecha programada', 'Fecha', 'paid_date', 'Date']))),
-    method: toString(getField(raw, ['Metodo pago', 'Metodo de Pago', 'Método de Pago', 'Método', 'Metodo', 'Method']), 'Transferencia'),
-    amount: toNumber(getField(raw, ['Monto programado', 'Monto', 'amount', 'Amount'])),
-    receiptUrl: toString(getField(raw, ['Recibo', 'Comprobante', 'Documento', 'Receipt', 'Archivo', 'file'])),
-  }));
+  return rawList
+    .filter(isActivePayment)
+    .map((raw, index) => ({
+      id: toString(getField(raw, ['_id', 'id']), `pago-${index}`),
+      date: formatPaymentDate(toString(getField(raw, ['Fecha pago', 'Fecha Pago', 'Fecha programada', 'Fecha', 'paid_date', 'Date']))),
+      method: toString(getField(raw, ['Metodo pago', 'Metodo de Pago', 'Método de Pago', 'Método', 'Metodo', 'Method']), 'Transferencia'),
+      amount: toNumber(getField(raw, ['Monto programado', 'Monto', 'amount', 'Amount'])),
+      receiptUrl: formatImageUrl(toString(getField(raw, ['Recibo', 'Comprobante', 'Documento', 'Receipt', 'Archivo', 'file']))) ?? '',
+    }));
 }
 
 export function adaptBubbleProgress(rawList: Raw[]): {
   specialties: Progress[];
   history: AdaptedProgressUpdate[];
 } {
-  const history: AdaptedProgressUpdate[] = rawList.map((raw, index) => {
-    const overall = toNumber(getField(raw, ['Avance Obra General', 'Avance General', 'Progreso General', 'Progreso', 'Overall Progress', 'general_progress']));
-    const dateRaw = toString(getField(raw, ['fecha', 'Fecha', 'Fecha de Actualización', 'Fecha de Actualizacion', 'Date', 'Last Update', 'timestamp']));
-    const parts = SPECIALTY_FIELDS.map((specialty, partIndex) => ({
-      id: `${index}-${partIndex}`,
-      name: specialty.name,
-      percentage: toNumber(getField(raw, specialty.variants)),
-    }));
-    const photos = toUrlArray(getField(raw, ['Fotos', 'Imágenes', 'Imagenes', 'Images', 'Photos', 'photo']));
-    return {
-      id: toString(getField(raw, ['_id', 'id']), `update-${index}`),
-      title: toString(getField(raw, ['Título', 'Titulo', 'Title', 'description']), `Avance ${index + 1}`),
-      date: formatLongDate(dateRaw),
-      dateShort: formatShortDate(dateRaw),
-      overall,
-      parts,
-      photos,
-    };
-  });
+  const history: AdaptedProgressUpdate[] = rawList
+    .map((raw, index) => {
+      const overall = toNumber(getField(raw, ['Avance Obra General', 'Avance General', 'Progreso General', 'Progreso', 'Overall Progress', 'general_progress']));
+      const dateRaw = toString(getField(raw, ['fecha', 'Fecha', 'Fecha de Actualización', 'Fecha de Actualizacion', 'Date', 'Last Update', 'timestamp']));
+      const parts = SPECIALTY_FIELDS.map((specialty, partIndex) => ({
+        id: `${index}-${partIndex}`,
+        name: specialty.name,
+        percentage: toNumber(getField(raw, specialty.variants)),
+      }));
+      const photos = toUrlArray(getField(raw, ['Fotos', 'Imágenes', 'Imagenes', 'Images', 'Photos', 'photo']));
+      return {
+        id: toString(getField(raw, ['_id', 'id']), `update-${index}`),
+        title: toString(getField(raw, ['Título', 'Titulo', 'Title', 'description']), `Avance ${index + 1}`),
+        date: formatLongDate(dateRaw),
+        dateShort: formatShortDate(dateRaw),
+        sortDate: parseDate(dateRaw)?.getTime() ?? 0,
+        overall,
+        parts,
+        photos,
+      };
+    })
+    .sort((a, b) => a.sortDate - b.sortDate)
+    .map(({ sortDate: _sortDate, ...rest }) => rest);
 
   const latest = history.length > 0 ? history[history.length - 1] : null;
   const specialties: Progress[] = SPECIALTY_FIELDS.map((specialty, index) => ({
@@ -274,7 +300,7 @@ export function adaptBubbleDocuments(rawList: Raw[]): Document[] {
     _id: toString(getField(raw, ['_id', 'id']), `doc-${index}`),
     title: toString(getField(raw, ['Título', 'Titulo', 'Title', 'Nombre', 'name']), 'Documento'),
     category: toString(getField(raw, ['Categoría', 'Categoria', 'Category', 'Tipo']), 'General'),
-    fileUrl: toString(getField(raw, ['URL', 'Url', 'File URL', 'Archivo', 'Archivo URL', 'file'])),
+    fileUrl: formatImageUrl(toString(getField(raw, ['URL', 'Url', 'File URL', 'Archivo', 'Archivo URL', 'file']))) ?? '',
     createdDate: toString(getField(raw, ['Modified Date', 'Created Date', 'Fecha', 'Fecha de Creación', 'Fecha de Creacion'])),
   }));
 }
@@ -285,11 +311,20 @@ export interface NextPayment {
   daysRemaining: number;
 }
 
+export function calculateSalePrice(payments: Payment[]): number {
+  return payments.reduce((sum, payment) => sum + (payment.amount ?? 0), 0);
+}
+
 export function calculateTotalPaid(payments: Payment[]): number {
   return payments.reduce((sum, payment) => sum + (payment.paidAmount ?? 0), 0);
 }
 
 export function calculatePendingBalance(payments: Payment[]): number {
+  const salePrice = calculateSalePrice(payments);
+  const totalPaid = calculateTotalPaid(payments);
+  if (salePrice > 0) {
+    return Math.max(salePrice - totalPaid, 0);
+  }
   return payments.reduce((sum, payment) => sum + (payment.pendingAmount ?? 0), 0);
 }
 
@@ -300,20 +335,19 @@ export function calculateOverdueBalance(payments: Payment[]): number {
 }
 
 export function calculatePaidPercentage(payments: Payment[]): number {
-  const totalPaid = calculateTotalPaid(payments);
-  const pendingBalance = calculatePendingBalance(payments);
-  const denominator = totalPaid + pendingBalance;
-  return denominator > 0 ? Math.round((totalPaid / denominator) * 100) : 0;
+  const salePrice = calculateSalePrice(payments);
+  if (salePrice <= 0) return 0;
+  return Math.round((calculateTotalPaid(payments) / salePrice) * 100);
 }
 
 export function getNextPayment(payments: Payment[]): NextPayment | null {
-  const pending = payments
-    .filter((payment) => payment.status !== 'Pagado' && payment.dueDate)
+  const now = new Date();
+  const upcoming = payments
+    .filter((payment) => payment.status !== 'Pagado' && payment.dueDate && new Date(payment.dueDate) > now)
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-  const next = pending[0];
+  const next = upcoming[0];
   if (!next) return null;
   const due = new Date(next.dueDate);
-  const now = new Date();
   const daysRemaining = Math.max(0, Math.ceil((due.getTime() - now.getTime()) / 86400000));
   return {
     amount: next.pendingAmount || next.amount,
