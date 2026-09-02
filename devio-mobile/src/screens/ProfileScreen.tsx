@@ -44,6 +44,7 @@ export default function ProfileScreen() {
   const [email, setEmail] = useState(user?.email ?? '');
   const [pickedAvatarUri, setPickedAvatarUri] = useState<string | null>(user?.photoUrl ?? null);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -67,16 +68,30 @@ export default function ProfileScreen() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.7,
+      base64: true,
     });
-    if (!result.canceled && result.assets.length > 0) {
-      const uri = result.assets[0].uri;
-      setPickedAvatarUri(uri);
-      try {
-        await updateProfile({ photoUrl: uri });
-      } catch (err) {
-        console.warn('Error saving picked avatar:', err);
-      }
+    if (result.canceled || result.assets.length === 0) {
+      return;
+    }
+    const asset = result.assets[0];
+    if (!asset.base64) {
+      Alert.alert('Error', 'No se pudo leer la imagen seleccionada.');
+      return;
+    }
+    const dataUri = `data:${asset.mimeType ?? 'image/jpeg'};base64,${asset.base64}`;
+    setPickedAvatarUri(dataUri);
+    setUploadingPhoto(true);
+    try {
+      await updateProfile({ photoUrl: dataUri });
+      Alert.alert('Foto actualizada', 'Tu foto de perfil se actualizó correctamente.');
+    } catch (err) {
+      Alert.alert(
+        'Error al subir',
+        err instanceof Error ? err.message : 'No fue posible actualizar tu foto de perfil.',
+      );
+    } finally {
+      setUploadingPhoto(false);
     }
   };
 
@@ -170,12 +185,18 @@ export default function ProfileScreen() {
               onPress={handlePickImage}
               accessibilityLabel="Cambiar foto de perfil"
             >
-              <Camera size={16} color={COLORS.surface} strokeWidth={2.2} />
+              {uploadingPhoto ? (
+                <ActivityIndicator size="small" color={COLORS.surface} />
+              ) : (
+                <Camera size={16} color={COLORS.surface} strokeWidth={2.2} />
+              )}
             </Pressable>
           </View>
           <Text style={styles.avatarName}>{user?.name ?? 'Usuario DEVIO'}</Text>
-          <Pressable style={styles.avatarEditLink} onPress={handlePickImage}>
-            <Text style={styles.avatarEditText}>Cambiar foto de perfil</Text>
+          <Pressable style={styles.avatarEditLink} onPress={handlePickImage} disabled={uploadingPhoto}>
+            <Text style={styles.avatarEditText}>
+              {uploadingPhoto ? 'Subiendo foto...' : 'Cambiar foto de perfil'}
+            </Text>
           </Pressable>
         </View>
 

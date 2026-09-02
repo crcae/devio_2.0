@@ -321,11 +321,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!user) {
         throw new Error('No hay sesión activa.');
       }
-      await updateUserProfile(user._id, updates);
+      const result = await updateUserProfile(user._id, updates);
       const nextUser: User = {
         ...user,
         name: updates.name !== undefined && updates.name.trim() !== '' ? updates.name.trim() : user.name,
-        photoUrl: updates.photoUrl !== undefined ? updates.photoUrl : user.photoUrl,
+        photoUrl: result.photoUrl ?? updates.photoUrl ?? user.photoUrl,
       };
       setUser(nextUser);
       await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user: nextUser }));

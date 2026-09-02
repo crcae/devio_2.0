@@ -367,6 +367,53 @@ const UNIT_USER_LINK_KEYS = [
 ];
 const INACTIVE_STATUSES = ['baja', 'cancelada', 'inactiva', 'inactivo', 'suspendido'];
 
+const EXCLUDED_META_KEYS = new Set([
+  'Historial User',
+  'Created By',
+  'Modified By',
+  'Created Date',
+  'Modified Date',
+  'user_signed_up',
+  'authentication',
+  'Lista de Permisos',
+]);
+
+/**
+ * Deep, recursive property inspection: returns true if ANY string value (at any
+ * nesting depth) in the record equals the user id or email (case-insensitive).
+ * Audit/meta keys are excluded to avoid false positives.
+ */
+export function recordReferencesUser(
+  record: Raw,
+  userId: string,
+  userEmail: string,
+): boolean {
+  const targets = [userId, userEmail]
+    .filter((value) => value && value.length > 0)
+    .map((value) => value.trim().toLowerCase());
+  if (targets.length === 0) return false;
+
+  const stack: Array<[unknown, string | null]> = [[record, null]];
+  while (stack.length > 0) {
+    const [value, key] = stack.pop() as [unknown, string | null];
+    if (value === null || value === undefined) continue;
+    if (key !== null && EXCLUDED_META_KEYS.has(key)) continue;
+    if (typeof value === 'string') {
+      const normalized = value.trim().toLowerCase();
+      if (targets.includes(normalized)) return true;
+    } else if (Array.isArray(value)) {
+      for (const item of value) {
+        stack.push([item, key]);
+      }
+    } else if (typeof value === 'object') {
+      for (const [childKey, childValue] of Object.entries(value as Raw)) {
+        stack.push([childValue, childKey]);
+      }
+    }
+  }
+  return false;
+}
+
 function extractLinkedRefs(user: Raw | null): string[] {
   if (!user) return [];
   const refs: string[] = [];
