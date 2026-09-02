@@ -41,11 +41,13 @@ export default function ProfileScreen() {
   const { user, logout } = useApp();
   const [name, setName] = useState(user?.name ?? '');
   const [email, setEmail] = useState(user?.email ?? '');
-  const [avatarUri, setAvatarUri] = useState<string | null>(null);
+  const [pickedAvatarUri, setPickedAvatarUri] = useState<string | null>(null);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  const avatarUri = pickedAvatarUri ?? user?.photoUrl ?? null;
 
   const handlePickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -60,7 +62,7 @@ export default function ProfileScreen() {
       quality: 0.8,
     });
     if (!result.canceled && result.assets.length > 0) {
-      setAvatarUri(result.assets[0].uri);
+      setPickedAvatarUri(result.assets[0].uri);
     }
   };
 

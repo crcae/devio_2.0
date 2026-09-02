@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,6 +24,13 @@ import {
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
+import {
+  calculateOverdueBalance,
+  calculatePendingBalance,
+  calculateTotalPaid,
+  getNextPayment,
+  type AdaptedProperty,
+} from '../services/bubbleAdapter';
 import type { RootStackParamList } from '../navigation/types';
 import AppHeader from '../components/AppHeader';
 
@@ -55,35 +63,38 @@ function formatMXN(amount: number): string {
   return `$${amount.toLocaleString('en-US')}`;
 }
 
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatNextDue(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return `${MONTHS_SHORT[date.getMonth()]} ${date.getDate()}`;
+}
+
 export default function PropertyDetailScreen({ navigation }: Props) {
-  const { selectedProperty, payments } = useApp();
+  const { selectedProperty, payments, isDemoMode } = useApp();
   const [unitInfoExpanded, setUnitInfoExpanded] = useState(true);
   const [activeThumb, setActiveThumb] = useState(0);
 
   const unitName = selectedProperty?.name ?? 'Solea Residencial | 1A';
 
-  const { nextPayment, overdueBalance } = useMemo(() => {
-    if (payments.length === 0) {
-      return { nextPayment: 200000, overdueBalance: 900000 };
-    }
-    const next =
-      payments.find((p) => p.status !== 'Pagado')?.pendingAmount ||
-      payments.find((p) => p.status !== 'Pagado')?.amount ||
-      200000;
-    const overdue = payments
-      .filter((p) => p.status !== 'Pagado' && p.dueDate < '2026-09-01')
-      .reduce((sum, p) => sum + p.pendingAmount, 0);
-    return { nextPayment: next, overdueBalance: overdue || 900000 };
-  }, [payments]);
+  const nextPaymentInfo = useMemo(() => getNextPayment(payments), [payments]);
+  const nextPayment = nextPaymentInfo?.amount ?? (isDemoMode ? 200000 : 0);
+  const overdueBalance = useMemo(
+    () => calculateOverdueBalance(payments) || (isDemoMode ? 900000 : 0),
+    [payments, isDemoMode],
+  );
 
   const { salePrice, totalPaid, pendingBalance } = useMemo(() => {
     if (payments.length === 0) {
+      if (!isDemoMode) {
+        return { salePrice: 0, totalPaid: 0, pendingBalance: 0 };
+      }
       return { salePrice: 6000000, totalPaid: 300000, pendingBalance: 5700000 };
     }
     const price = payments.reduce((sum, p) => sum + p.amount, 0);
-    const paid = payments.reduce((sum, p) => sum + p.paidAmount, 0);
-    return { salePrice: price, totalPaid: paid, pendingBalance: Math.max(price - paid, 0) };
-  }, [payments]);
+    return { salePrice: price, totalPaid: calculateTotalPaid(payments), pendingBalance: calculatePendingBalance(payments) };
+  }, [payments, isDemoMode]);
 
   const progress = selectedProperty?.generalProgress ?? 0;
   const lastUpdate = 'N/A';
@@ -93,6 +104,18 @@ export default function PropertyDetailScreen({ navigation }: Props) {
     { icon: BedDouble, label: 'Cuartos', value: `${selectedProperty?.bedrooms ?? 1}` },
     { icon: Bath, label: 'Baños', value: `${selectedProperty?.bathrooms ?? 1}` },
   ];
+
+  const openMarketplace = async () => {
+    const desarrolladoraId = (selectedProperty as AdaptedProperty | null)?.desarrolladoraId;
+    const url = desarrolladoraId
+      ? `https://app.deviomx.com/marketplace/${desarrolladoraId}`
+      : 'https://app.deviomx.com/marketplace';
+    try {
+      await Linking.openURL(url);
+    } catch {
+      Alert.alert('Marketplace', 'No fue posible abrir el marketplace.');
+    }
+  };
 
   const quickActions = [
     {
@@ -111,7 +134,7 @@ export default function PropertyDetailScreen({ navigation }: Props) {
       key: 'marketplace',
       icon: Store,
       label: 'Marketplace',
-      onPress: () => Alert.alert('Marketplace', 'Marketplace de propiedades próximamente'),
+      onPress: openMarketplace,
     },
   ];
 
@@ -178,7 +201,11 @@ export default function PropertyDetailScreen({ navigation }: Props) {
             </View>
           </View>
 
-          <Text style={styles.paymentSubtitle}>Vence: Sep 20 | En 20 días</Text>
+          <Text style={styles.paymentSubtitle}>
+            {nextPaymentInfo
+              ? `Vence: ${formatNextDue(nextPaymentInfo.dueDate)} | En ${nextPaymentInfo.daysRemaining} días`
+              : 'Sin pagos pendientes'}
+          </Text>
 
           <Pressable
             style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}

@@ -14,6 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import type { FinancialSummary, Payment, PaymentStatus } from '../types';
+import { calculateOverdueBalance, calculatePaidPercentage, calculatePendingBalance, calculateTotalPaid } from '../services/bubbleAdapter';
 import { MOCK_PAYMENT_CONCEPTS } from '../services/mockData';
 import type { RootStackParamList } from '../navigation/types';
 import AppHeader from '../components/AppHeader';
@@ -60,7 +61,7 @@ function formatShortDate(iso: string): string {
 }
 
 export default function PagosScreen({ navigation }: Props) {
-  const { selectedProperty, payments, executedPayments: contextExecutedPayments, loadPayments, dataLoading } = useApp();
+  const { selectedProperty, payments, executedPayments: contextExecutedPayments, loadPayments, dataLoading, isDemoMode } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>('estado');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -79,25 +80,29 @@ export default function PagosScreen({ navigation }: Props) {
 
   const summary: FinancialSummary = useMemo(() => {
     if (payments.length === 0) {
+      if (!isDemoMode) {
+        return { totalPrice: 0, totalPaid: 0, pendingBalance: 0, overdueBalance: 0, paidPercentage: 0 };
+      }
       return { totalPrice: 6000000, totalPaid: 300000, pendingBalance: 5700000, overdueBalance: 900000, paidPercentage: 5 };
     }
     const totalPrice = payments.reduce((sum, p) => sum + p.amount, 0);
-    const totalPaid = payments.reduce((sum, p) => sum + p.paidAmount, 0);
-    const pendingBalance = payments.reduce((sum, p) => sum + p.pendingAmount, 0);
-    const overdueBalance = payments
-      .filter((p) => p.status !== 'Pagado' && p.dueDate < '2026-09-01')
-      .reduce((sum, p) => sum + p.pendingAmount, 0);
+    const totalPaid = calculateTotalPaid(payments);
+    const pendingBalance = calculatePendingBalance(payments);
+    const overdueBalance = calculateOverdueBalance(payments);
     return {
       totalPrice,
       totalPaid,
       pendingBalance,
       overdueBalance,
-      paidPercentage: totalPrice > 0 ? Math.round((totalPaid / totalPrice) * 100) : 0,
+      paidPercentage: calculatePaidPercentage(payments),
     };
-  }, [payments]);
+  }, [payments, isDemoMode]);
 
   const installments: InstallmentRow[] = useMemo(() => {
     if (payments.length === 0) {
+      if (!isDemoMode) {
+        return [];
+      }
       return [
         { id: 'mock-i1', unit: '1A', amount: 1200000, interest: 0, status: 'Parcial', paid: 300000, pending: 900000, concept: 'Enganche' },
         { id: 'mock-i2', unit: '1A', amount: 1200000, interest: 0, status: 'Pendiente', paid: 0, pending: 1200000, concept: 'Pago 2' },
@@ -114,13 +119,16 @@ export default function PagosScreen({ navigation }: Props) {
       pending: payment.pendingAmount,
       concept: MOCK_PAYMENT_CONCEPTS[payment._id] ?? 'Pago',
     }));
-  }, [payments, unitPrefix]);
+  }, [payments, unitPrefix, isDemoMode]);
 
   const executedPayments: ExecutedPayment[] = useMemo(() => {
     if (contextExecutedPayments.length > 0) {
       return contextExecutedPayments;
     }
     if (payments.length === 0) {
+      if (!isDemoMode) {
+        return [];
+      }
       return [
         { id: 'mock-x1', date: '21 Ago 26', method: 'Transferencia', amount: 300000 },
         { id: 'mock-x2', date: '15 Mar 26', method: 'Transferencia', amount: 612500 },
@@ -134,7 +142,7 @@ export default function PagosScreen({ navigation }: Props) {
         method: 'Transferencia',
         amount: p.paidAmount || p.amount,
       }));
-  }, [contextExecutedPayments, payments]);
+  }, [contextExecutedPayments, payments, isDemoMode]);
 
   const isExpanded = (id: string) => expandedIds.has(id);
   const toggleExpanded = (id: string) => {

@@ -18,6 +18,7 @@ import { useApp } from '../context/AppContext';
 import type { Unit } from '../types';
 import { MOCK_PROPERTIES } from '../services/mockData';
 import type { MainTabParamList, RootStackParamList } from '../navigation/types';
+import type { AdaptedProperty } from '../services/bubbleAdapter';
 import EnvBadge from '../components/EnvBadge';
 import EmptyState from '../components/EmptyState';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
@@ -74,12 +75,12 @@ function PropertyImage({ unit }: { unit: Unit }) {
 }
 
 export default function DashboardScreen({ navigation }: Props) {
-  const { user, userProperties, selectedProperty, setSelectedProperty, loadUserProperties, dataLoading } =
+  const { user, userProperties, selectedProperty, setSelectedProperty, loadUserProperties, dataLoading, isDemoMode } =
     useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
 
-  const data = userProperties.length > 0 ? userProperties : MOCK_PROPERTIES;
+  const data = userProperties.length > 0 ? userProperties : isDemoMode ? MOCK_PROPERTIES : [];
   const showOverlay = dataLoading && userProperties.length === 0;
 
   const openProfileTab = () => {
@@ -102,7 +103,9 @@ export default function DashboardScreen({ navigation }: Props) {
   };
 
   const renderProperty = ({ item }: { item: Unit }) => {
+    const adapted = item as AdaptedProperty;
     const isActive = selectedProperty?._id === item._id;
+    const tipo = adapted.tipo ? `${adapted.tipo.charAt(0).toUpperCase()}${adapted.tipo.slice(1)}` : 'Departamento';
     return (
       <Pressable
         style={[styles.card, isActive && styles.cardActive]}
@@ -111,13 +114,13 @@ export default function DashboardScreen({ navigation }: Props) {
         <View style={styles.imageWrap}>
           <PropertyImage unit={item} />
           <View style={styles.tag}>
-            <Text style={styles.tagText}>Departamento</Text>
+            <Text style={styles.tagText}>{tipo}</Text>
           </View>
         </View>
 
         <View style={styles.cardBody}>
           <Text style={styles.cardTitle}>{item.name}</Text>
-          <Text style={styles.cardLocation}>{LOCATION}</Text>
+          <Text style={styles.cardLocation}>{adapted.location || LOCATION}</Text>
 
           <View style={styles.badgesRow}>
             <View style={styles.badge}>
@@ -212,8 +215,8 @@ export default function DashboardScreen({ navigation }: Props) {
           ListEmptyComponent={
             <EmptyState
               icon={Home}
-              title="No tienes propiedades asignadas aún"
-              description="Cuando se asigne una propiedad a tu cuenta, aparecerá aquí."
+              title="No tienes unidades asignadas"
+              description="Cuando se asigne una unidad a tu cuenta, aparecerá aquí."
             />
           }
         />

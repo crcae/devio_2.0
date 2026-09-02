@@ -4,6 +4,8 @@ export interface User {
   name: string;
   role: string;
   token: string;
+  assignedProperties?: string[];
+  photoUrl?: string;
 }
 
 export type PropertyStatus = 'Disponible' | 'Reservada' | 'Apartada' | 'Vendida' | 'Entregada';

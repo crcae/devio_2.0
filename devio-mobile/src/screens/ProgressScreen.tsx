@@ -7,6 +7,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,6 +29,7 @@ import type { Progress } from '../types';
 import type { RootStackParamList } from '../navigation/types';
 import type { AdaptedProgressUpdate } from '../services/bubbleAdapter';
 import { MOCK_PROGRESS_HISTORY } from '../services/mockData';
+import EmptyState from '../components/EmptyState';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Progress'>;
@@ -100,13 +102,17 @@ function ProgressRing({ percentage }: { percentage: number }) {
 }
 
 export default function ProgressScreen({ navigation }: Props) {
-  const { selectedProperty, progress, progressHistory, loadProgress, dataLoading } = useApp();
+  const { selectedProperty, progress, progressHistory, loadProgress, dataLoading, isDemoMode } = useApp();
   const [refreshing, setRefreshing] = useState(false);
   const [activeUpdate, setActiveUpdate] = useState<AdaptedProgressUpdate | null>(null);
   const [lightboxPhotos, setLightboxPhotos] = useState<AdaptedProgressUpdate['photos'] | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
-  const historyList = progressHistory.length > 0 ? progressHistory : MOCK_PROGRESS_HISTORY;
+  const historyList = progressHistory.length > 0
+    ? progressHistory
+    : isDemoMode
+      ? MOCK_PROGRESS_HISTORY
+      : [];
 
   const unitId = selectedProperty?._id ?? '';
   const showOverlay = dataLoading && progress.length === 0;
@@ -125,7 +131,7 @@ export default function ProgressScreen({ navigation }: Props) {
 
   const specialties: SpecialtyRow[] = useMemo(() => {
     if (progress.length === 0) {
-      return MOCK_SPECIALTIES;
+      return isDemoMode ? MOCK_SPECIALTIES : [];
     }
     const used = new Set<string>();
     return SPECIALTY_DEFS.map((def, index) => {
@@ -143,7 +149,7 @@ export default function ProgressScreen({ navigation }: Props) {
         icon: def.icon,
       };
     });
-  }, [progress]);
+  }, [progress, isDemoMode]);
 
   const lastUpdate = useMemo(() => {
     if (progress.length === 0) return 'N/A';
@@ -258,112 +264,148 @@ export default function ProgressScreen({ navigation }: Props) {
                 <Text style={styles.updateText}>Última actualización {lastUpdate}</Text>
               </View>
             </View>
-            {specialties.map(renderSpecialty)}
+            {specialties.length > 0 ? (
+              specialties.map(renderSpecialty)
+            ) : (
+              <EmptyState
+                icon={Wrench}
+                title="Sin avances de especialidad"
+                description="No hay avances registrados para esta propiedad."
+              />
+            )}
           </View>
 
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>Histórico Avances de Obra</Text>
-            {historyList.map((update) => (
-              <Pressable
-                key={update.id}
-                style={({ pressed }) => [styles.historyCard, pressed && styles.pressed]}
-                onPress={() => setActiveUpdate(update)}
-              >
-                <View style={styles.historyThumb}>
-                  <Camera size={18} color={COLORS.gold} strokeWidth={1.8} />
-                </View>
-                <View style={styles.historyBody}>
-                  <Text style={styles.historyTitle}>{update.title}</Text>
-                  <Text style={styles.historyDate}>{update.date}</Text>
-                </View>
-                <Text style={styles.historyPercent}>{update.overall}%</Text>
-              </Pressable>
-            ))}
+            {historyList.length > 0 ? (
+              historyList.map((update) => (
+                <Pressable
+                  key={update.id}
+                  style={({ pressed }) => [styles.historyCard, pressed && styles.pressed]}
+                  onPress={() => setActiveUpdate(update)}
+                >
+                  <View style={styles.historyThumb}>
+                    <Camera size={18} color={COLORS.gold} strokeWidth={1.8} />
+                  </View>
+                  <View style={styles.historyBody}>
+                    <Text style={styles.historyTitle}>{update.title}</Text>
+                    <Text style={styles.historyDate}>{update.date}</Text>
+                  </View>
+                  <Text style={styles.historyPercent}>{update.overall}%</Text>
+                </Pressable>
+              ))
+            ) : (
+              <EmptyState
+                icon={Camera}
+                title="Sin actualizaciones de obra"
+                description="No hay reportes de avance registrados aún."
+              />
+            )}
           </View>
         </ScrollView>
       )}
 
       <Modal
         visible={activeUpdate !== null}
-        animationType="slide"
+        transparent
+        animationType="fade"
         onRequestClose={() => setActiveUpdate(null)}
       >
-        <View style={styles.modalScreen}>
-          <SafeAreaView edges={['top']}>
-            <View style={styles.modalTopBar}>
-              <View />
-              <Pressable
-                style={styles.modalClose}
-                onPress={() => setActiveUpdate(null)}
-                accessibilityLabel="Cerrar"
-              >
-                <X size={22} color={COLORS.textPrimary} />
-              </Pressable>
-            </View>
-          </SafeAreaView>
+        <View style={styles.modalRoot}>
+          <TouchableWithoutFeedback onPress={() => setActiveUpdate(null)}>
+            <View style={styles.modalBackdrop} />
+          </TouchableWithoutFeedback>
 
-          {activeUpdate ? (
-            <ScrollView contentContainerStyle={styles.modalContent} showsVerticalScrollIndicator={false}>
-              <View style={styles.modalTitleBlock}>
-                <View style={styles.modalCalendarBadge}>
-                  <Calendar size={24} color={COLORS.gold} strokeWidth={2} />
-                </View>
-                <View style={styles.modalTitleText}>
-                  <Text style={styles.modalSubtitle}>Avance de Obra</Text>
-                  <Text style={styles.modalTitle}>{activeUpdate.title}</Text>
-                  <Text style={styles.modalDate}>{activeUpdate.date}</Text>
-                </View>
+          <View style={styles.modalSheet}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.modalSheetContent}
+            >
+              <View style={styles.modalTopBar}>
+                <View style={styles.modalGrabber} />
+                <Pressable
+                  style={({ pressed }) => [styles.modalClose, pressed && styles.pressed]}
+                  onPress={() => setActiveUpdate(null)}
+                  accessibilityLabel="Cerrar"
+                >
+                  <X size={22} color={COLORS.textPrimary} />
+                </Pressable>
               </View>
 
-              <Text style={styles.modalSectionTitle}>Fotos del Avance</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {activeUpdate.photos.map((photo, index) => (
-                  <Pressable
-                    key={photo.id}
-                    style={styles.modalPhoto}
-                    onPress={() => {
-                      setLightboxPhotos(activeUpdate.photos);
-                      setLightboxIndex(index);
-                    }}
-                  >
-                    {photo.url ? (
-                      <Image source={{ uri: photo.url }} style={styles.modalPhotoImage} resizeMode="cover" />
-                    ) : (
-                      <View
-                        style={[
-                          styles.modalPhotoTone,
-                          { backgroundColor: photo.tone ?? COLORS.primary },
-                        ]}
-                      >
-                        <Camera size={30} color={COLORS.gold} strokeWidth={1.6} />
-                      </View>
-                    )}
-                  </Pressable>
-                ))}
-              </ScrollView>
-
-              <Text style={styles.modalSectionTitle}>Resumen del avance por partida</Text>
-              <View style={styles.modalSummaryHeader}>
-                <Text style={styles.modalSummaryLabel}>Avance General</Text>
-                <Text style={styles.modalSummaryValue}>{activeUpdate.overall}%</Text>
-              </View>
-              <View style={styles.updateRow}>
-                <View style={styles.greenDot} />
-                <Text style={styles.updateText}>Última actualización {activeUpdate.dateShort}</Text>
-              </View>
-
-              {activeUpdate.parts.map((part, index) => (
-                <View key={part.id} style={styles.modalPartRow}>
-                  <Text style={styles.modalPartIndex}>{index + 1}.</Text>
-                  <Text style={styles.modalPartName}>{part.name}</Text>
-                  <View style={styles.specialtyTrack}>
-                    <View style={[styles.specialtyFill, { width: `${part.percentage}%` }]} />
+              {activeUpdate ? (
+                <>
+                  <View style={styles.modalTitleBlock}>
+                    <View style={styles.modalCalendarBadge}>
+                      <Calendar size={24} color={COLORS.gold} strokeWidth={2} />
+                    </View>
+                    <View style={styles.modalTitleText}>
+                      <Text style={styles.modalSubtitle}>Avance de Obra</Text>
+                      <Text style={styles.modalTitle}>{activeUpdate.title}</Text>
+                      <Text style={styles.modalDate}>{activeUpdate.date}</Text>
+                    </View>
                   </View>
-                  <Text style={styles.specialtyPercent}>{part.percentage}%</Text>
-                </View>
-              ))}
+
+                  <Text style={styles.modalSectionTitle}>Fotos del Avance</Text>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.modalPhotosRow}
+                  >
+                    {activeUpdate.photos.map((photo, index) => (
+                      <Pressable
+                        key={photo.id}
+                        style={styles.modalPhoto}
+                        onPress={() => {
+                          setLightboxPhotos(activeUpdate.photos);
+                          setLightboxIndex(index);
+                        }}
+                      >
+                        {photo.url ? (
+                          <Image source={{ uri: photo.url }} style={styles.modalPhotoImage} resizeMode="cover" />
+                        ) : (
+                          <View
+                            style={[
+                              styles.modalPhotoTone,
+                              { backgroundColor: photo.tone ?? COLORS.primary },
+                            ]}
+                          >
+                            <Camera size={30} color={COLORS.gold} strokeWidth={1.6} />
+                          </View>
+                        )}
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+
+                  <Text style={styles.modalSectionTitle}>Resumen del avance por partida</Text>
+                  <View style={styles.modalSummaryCard}>
+                    <View style={styles.modalSummaryHeader}>
+                      <Text style={styles.modalSummaryLabel}>Avance General</Text>
+                      <Text style={styles.modalSummaryValue}>{activeUpdate.overall}%</Text>
+                    </View>
+                    <View style={styles.updateRow}>
+                      <View style={styles.greenDot} />
+                      <Text style={styles.updateText}>Última actualización {activeUpdate.dateShort}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.modalParts}>
+                    {activeUpdate.parts.map((part, index) => (
+                      <View key={part.id} style={styles.modalPartRow}>
+                        <View style={styles.modalPartChip}>
+                          <Text style={styles.modalPartIndex}>{index + 1}</Text>
+                        </View>
+                        <Text style={styles.modalPartName}>{part.name}</Text>
+                        <View style={styles.specialtyTrack}>
+                          <View style={[styles.specialtyFill, { width: `${part.percentage}%` }]} />
+                        </View>
+                        <Text style={styles.specialtyPercent}>{part.percentage}%</Text>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : null}
             </ScrollView>
-          ) : null}
+          </View>
         </View>
       </Modal>
 
@@ -657,33 +699,53 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: COLORS.gold,
   },
-  modalScreen: {
+  modalRoot: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
+    justifyContent: 'flex-end',
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  modalSheet: {
+    backgroundColor: COLORS.surface,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '88%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 16,
+  },
+  modalSheetContent: {
+    paddingHorizontal: SPACING.lg,
+    paddingBottom: SPACING.xl,
   },
   modalTopBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: SPACING.lg,
     paddingTop: SPACING.sm,
+    marginBottom: SPACING.sm,
+  },
+  modalGrabber: {
+    width: 40,
+    height: 5,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.border,
   },
   modalClose: {
     width: 40,
     height: 40,
     borderRadius: RADIUS.pill,
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  modalContent: {
-    padding: SPACING.lg,
-    paddingBottom: SPACING.xl,
   },
   modalTitleBlock: {
     flexDirection: 'row',
@@ -722,10 +784,14 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     marginBottom: SPACING.md,
   },
+  modalPhotosRow: {
+    marginBottom: SPACING.lg,
+  },
   modalPhoto: {
-    width: 120,
-    height: 96,
+    width: 140,
+    height: 104,
     borderRadius: RADIUS.md,
+    backgroundColor: '#F1F5F9',
     marginRight: SPACING.sm,
     overflow: 'hidden',
   },
@@ -738,11 +804,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  modalSummaryCard: {
+    backgroundColor: COLORS.background,
+    borderRadius: RADIUS.md,
+    padding: SPACING.md,
+    marginBottom: SPACING.md,
+  },
   modalSummaryHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginTop: SPACING.md,
   },
   modalSummaryLabel: {
     fontSize: 15,
@@ -754,19 +825,35 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: COLORS.success,
   },
+  modalParts: {
+    backgroundColor: COLORS.surface,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
   modalPartRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: SPACING.md,
+    paddingVertical: SPACING.sm,
+  },
+  modalPartChip: {
+    width: 28,
+    height: 28,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.goldLight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   modalPartIndex: {
-    width: 18,
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '700',
-    color: COLORS.textSecondary,
+    color: COLORS.gold,
   },
   modalPartName: {
     width: 92,
+    marginLeft: SPACING.sm,
     fontSize: 13,
     fontWeight: '600',
     color: COLORS.textPrimary,

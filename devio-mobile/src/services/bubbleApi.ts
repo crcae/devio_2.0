@@ -1,4 +1,5 @@
 import type { User } from '../types';
+import { matchUnitsToUser } from './bubbleAdapter';
 
 const TEST_BASE_URL = 'https://app.deviomx.com/version-test/api/1.1';
 const LIVE_BASE_URL = 'https://app.deviomx.com/api/1.1';
@@ -62,14 +63,15 @@ function toString(value: unknown, fallback = ''): string {
   return fallback;
 }
 
-export function filterRawByValue(rawList: Raw[], keys: string[], value: string): Raw[] {
-  if (!value) return [];
+export function filterRawByValue(rawList: Raw[], keys: string[], values: string[]): Raw[] {
+  const activeValues = values.filter((value) => value && value.length > 0);
+  if (activeValues.length === 0) return [];
   const targetNorms = keys.map(normKey);
   return rawList.filter((row) => {
     const rowEntries = Object.entries(row);
     return targetNorms.some((target) => {
       const match = rowEntries.find(([k]) => normKey(k) === target);
-      return match !== undefined && String(match[1]) === value;
+      return match !== undefined && activeValues.some((value) => String(match[1]) === value);
     });
   });
 }
@@ -141,17 +143,22 @@ async function fetchList(candidates: string[]): Promise<Raw[]> {
   throw lastError ?? new BubbleApiError('No API endpoints available');
 }
 
-const UNIT_PATH = ['/unit', '/obj/Unit'];
-const PROJECT_PATH = ['/project', '/obj/Project'];
-const INSTALLMENT_PATH = ['/installment', '/obj/Installment', '/obj/Installments'];
-const PAYMENT_PATH = ['/pago', '/payments', '/obj/Payment', '/obj/Payments'];
-const PROGRESS_PATH = ['/constructionupdate', '/progress', '/obj/ConstructionUpdate', '/obj/Progress'];
-const DOCUMENT_PATH = ['/document', '/obj/Document'];
-const USER_PATH = ['/user', '/obj/User'];
+const UNIT_PATH = ['/obj/Unit', '/obj/Project'];
+const PROJECT_PATH = ['/obj/Project'];
+const INSTALLMENT_PATH = ['/obj/Installment'];
+const PAYMENT_PATH = ['/obj/Payments', '/obj/Pago'];
+const PROGRESS_PATH = ['/obj/ConstructionUpdate', '/obj/Progress'];
+const DOCUMENT_PATH = ['/obj/Document'];
+const USER_PATH = ['/obj/User'];
+const SALES_PATH = ['/obj/sales', '/obj/Sales'];
 
-const USER_KEYS = ['Cliente', 'Client', 'Cliente ID', 'Client ID'];
-const UNIT_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'Project', 'project', 'Proyecto', 'Proyecto ID'];
-const EMAIL_KEYS = ['Email', 'Correo', 'Correo Electronico'];
+const EMAIL_KEYS = ['email', 'Correo', 'Mail', 'User Email'];
+
+const INSTALLMENT_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'User', 'Usuario', 'Cliente', 'unit', 'user', 'cotizacion', 'Venta', 'Sale'];
+const PAYMENT_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'User', 'Usuario', 'Cliente', 'Client', 'unit', 'user', 'cotizacion', 'Venta', 'Sale'];
+const PROGRESS_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'Project', 'project', 'Proyecto', 'Proyecto ID', 'User', 'Usuario', 'cotizacion', 'Venta', 'Sale'];
+const DOCUMENT_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'User', 'Usuario', 'Cliente', 'Client', 'unit', 'user', 'cotizacion', 'Venta', 'Sale'];
+const SALE_USER_KEYS = ['client', 'Client', 'Cliente', 'user', 'User', 'Usuario', 'comprador', 'Comprador', 'Correo'];
 
 function extractRefIds(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -174,69 +181,137 @@ function extractRefIds(value: unknown): string[] {
   return [];
 }
 
-export async function fetchRawUnits(userId?: string): Promise<Raw[]> {
+function extractSaleUnitIds(sales: Raw[]): string[] {
+  const ids: string[] = [];
+  for (const sale of sales) {
+    const ref =
+      sale['unidad'] ?? sale['unit'] ?? sale['Unit'] ?? sale['Unidad'] ?? sale['property'] ?? sale['Property'];
+    if (ref === undefined || ref === null) continue;
+    let id = '';
+    if (typeof ref === 'object') {
+      id = String((ref as Raw)._id ?? (ref as Raw).id ?? '');
+    } else {
+      id = String(ref);
+    }
+    if (id) ids.push(id);
+  }
+  return ids;
+}
+
+export function buildSaleIdsByUnit(sales: Raw[]): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  for (const sale of sales) {
+    const ref =
+      sale['unidad'] ?? sale['unit'] ?? sale['Unit'] ?? sale['Unidad'] ?? sale['property'] ?? sale['Property'];
+    if (ref === undefined || ref === null) continue;
+    let unitId = '';
+    if (typeof ref === 'object') {
+      unitId = String((ref as Raw)._id ?? (ref as Raw).id ?? '');
+    } else {
+      unitId = String(ref);
+    }
+    if (!unitId) continue;
+    const saleId = String(sale._id ?? sale.id ?? '');
+    if (!saleId) continue;
+    (map[unitId] = map[unitId] || []).push(saleId);
+  }
+  return map;
+}
+
+export async function fetchRawSalesForUser(userId?: string): Promise<Raw[]> {
+  const rows = await fetchList(SALES_PATH);
+  if (!userId) {
+    return rows;
+  }
+  const byUser = filterRawByValue(rows, SALE_USER_KEYS, [userId]);
+  return byUser.filter((sale) => {
+    const visible = sale['visible'] ?? sale['Visible'] ?? sale['activo'] ?? sale['Activo'];
+    if (visible === undefined || visible === null) return true;
+    return String(visible).toLowerCase() !== 'false' && String(visible) !== '0';
+  });
+}
+
+export async function fetchRawUnits(userId?: string, preFetchedSales?: Raw[]): Promise<Raw[]> {
   const rows = await fetchList(UNIT_PATH);
   if (!userId) {
     return rows;
   }
-  const direct = filterRawByValue(rows, USER_KEYS, userId);
-  if (direct.length > 0) {
-    return direct;
+
+  // 1) Resolve units through the sales join table (client -> unidad).
+  let sales = preFetchedSales;
+  if (!sales) {
+    try {
+      sales = await fetchRawSalesForUser(userId);
+    } catch {
+      sales = [];
+    }
   }
+  const saleUnitIds = extractSaleUnitIds(sales);
+  if (saleUnitIds.length > 0) {
+    const unitIdSet = new Set(saleUnitIds);
+    const matchedBySale = rows.filter((unit) => unitIdSet.has(String(unit._id)));
+    if (matchedBySale.length > 0) {
+      if (__DEV__) {
+        console.log(
+          `[BubbleSales] sales: ${sales.length} | resolved units via sales: ${matchedBySale.length}`,
+        );
+      }
+      return matchedBySale;
+    }
+  }
+
+  // 2) Fallback: dual-direction User <-> Unit matching.
+  let rawUser: Raw | null = null;
   try {
     const users = await fetchList(USER_PATH);
-    const currentUser = users.find((user) => String(user._id) === userId);
-    if (currentUser) {
-      const assigned = extractRefIds(
-        currentUser['Proyectos Asignados'] ?? currentUser['proyectos_asignados'],
-      );
-      if (assigned.length > 0) {
-        const filtered = rows.filter((row) =>
-          assigned.some((projectId) =>
-            Object.values(row).some((value) => String(value) === projectId),
-          ),
-        );
-        return filtered;
-      }
-    }
+    rawUser = users.find((user) => String(user._id) === userId) ?? null;
   } catch {
-    // Fall through to an empty result; mock data will take over.
+    rawUser = null;
   }
-  return [];
+  const userEmail = rawUser ? (nestedAuthEmail(rawUser) || findUserEmail(rawUser)) : '';
+  const matched = matchUnitsToUser(rows, rawUser, userId, userEmail);
+  if (__DEV__) {
+    console.log(
+      `[BubbleAuth] User ID: ${userId} | User Email: ${userEmail || 'N/A'} | Linked Unit Count: ${matched.length}`,
+    );
+  }
+  return matched;
 }
 
 export async function fetchRawProjects(): Promise<Raw[]> {
   return fetchList(PROJECT_PATH);
 }
 
-export async function fetchRawInstallments(unitId?: string): Promise<Raw[]> {
+export async function fetchRawInstallments(filterValues: string[] = []): Promise<Raw[]> {
   const rows = await fetchList(INSTALLMENT_PATH);
-  return unitId ? filterRawByValue(rows, UNIT_KEYS, unitId) : rows;
+  return filterRawByValue(rows, INSTALLMENT_FILTER_KEYS, filterValues);
 }
 
-export async function fetchRawPayments(unitId?: string): Promise<Raw[]> {
+export async function fetchRawPayments(filterValues: string[] = []): Promise<Raw[]> {
   const rows = await fetchList(PAYMENT_PATH);
-  return unitId ? filterRawByValue(rows, UNIT_KEYS, unitId) : rows;
+  return filterRawByValue(rows, PAYMENT_FILTER_KEYS, filterValues);
 }
 
-export async function fetchRawProgress(unitId?: string): Promise<Raw[]> {
+export async function fetchRawProgress(filterValues: string[] = []): Promise<Raw[]> {
   const rows = await fetchList(PROGRESS_PATH);
-  return unitId ? filterRawByValue(rows, UNIT_KEYS, unitId) : rows;
+  return filterRawByValue(rows, PROGRESS_FILTER_KEYS, filterValues);
 }
 
-export async function fetchRawDocuments(unitId?: string): Promise<Raw[]> {
+export async function fetchRawDocuments(filterValues: string[] = []): Promise<Raw[]> {
   const rows = await fetchList(DOCUMENT_PATH);
-  return unitId ? filterRawByValue(rows, UNIT_KEYS, unitId) : rows;
+  return filterRawByValue(rows, DOCUMENT_FILTER_KEYS, filterValues);
 }
 
 export async function login(email: string, password: string): Promise<User> {
-  const loginCandidates: Array<{ path: string; body: { email: string; password: string } }> = [
+  // 1) Attempt password validation workflows first (if configured in Bubble).
+  const workflowCandidates: Array<{ path: string; body: { email: string; password: string } }> = [
     { path: '/wf/login', body: { email, password } },
+    { path: '/wf/mobile_login', body: { email, password } },
     { path: '/obj/user/login', body: { email, password } },
   ];
 
   let lastError: unknown = null;
-  for (const candidate of loginCandidates) {
+  for (const candidate of workflowCandidates) {
     try {
       const data = await request<BubbleLoginResponse>(candidate.path, {
         method: 'POST',
@@ -244,13 +319,17 @@ export async function login(email: string, password: string): Promise<User> {
       });
       const token = data?.response?.token ?? data?.response?.accessToken;
       if (token || data?.response?.user) {
-        const user = data?.response?.user ?? {};
+        const rawUser = (data?.response?.user ?? {}) as Raw;
         return {
-          _id: toString(user._id),
-          email: toString(user.email, email),
-          name: toString(user.name),
-          role: toString(user.role, 'Client'),
+          _id: toString(rawUser._id),
+          email: toString(rawUser.email, email),
+          name: toString(rawUser.name ?? rawUser.Nombre),
+          role: toString(rawUser.role ?? rawUser.Role ?? rawUser.Rol, 'Client'),
           token: toString(token),
+          assignedProperties: extractRefIds(
+            rawUser['Proyectos Asignados'] ?? rawUser['Unidades'] ?? rawUser.assignedProperties,
+          ),
+          photoUrl: toString(rawUser['foto de perfil'] ?? rawUser.avatar ?? rawUser.Avatar),
         };
       }
     } catch (error) {
@@ -264,35 +343,117 @@ export async function login(email: string, password: string): Promise<User> {
       if (error instanceof BubbleApiError && error.statusCode === undefined) {
         throw error;
       }
+      // 5xx or other server errors: fall through to Data API verification.
     }
   }
 
-  const userRow = await findUserByEmail(email);
-  if (userRow) {
-    return {
-      _id: toString(userRow._id),
-      email: toString(userRow.email, email),
-      name: toString(userRow.Name ?? userRow.name ?? userRow.Nombre),
-      role: toString(userRow.Role ?? userRow.role ?? userRow.Rol, 'Client'),
-      token: 'bubble-session-token',
-    };
+  // 2) Verify the user profile exists via Data API email lookup.
+  const userRow = await queryUserByEmail(email);
+  if (!userRow) {
+    if (lastError instanceof BubbleApiError && lastError.statusCode === 401) {
+      throw new BubbleApiError('Credenciales incorrectas', 401, lastError.details);
+    }
+    throw new BubbleApiError('Credenciales incorrectas');
+  }
+  if (!isUserActive(userRow)) {
+    throw new BubbleApiError('Tu cuenta está inactiva. Contacta a tu asesor DEVIO.');
   }
 
-  if (lastError instanceof BubbleApiError && lastError.statusCode === 401) {
-    throw new BubbleApiError('Credenciales incorrectas', 401, lastError.details);
-  }
-  throw new BubbleApiError('Credenciales incorrectas');
+  return {
+    _id: toString(userRow._id),
+    email: findUserEmail(userRow) || email,
+    name: toString(userRow.Nombre ?? userRow.name ?? userRow.Name),
+    role: toString(userRow.role ?? userRow.Role ?? userRow.Rol, 'Client'),
+    token: 'bubble-session-token',
+    assignedProperties: extractRefIds(
+      userRow['Proyectos Asignados'] ?? userRow['Unidades'] ?? userRow.proyectos_asignados,
+    ),
+    photoUrl: toString(userRow['foto de perfil'] ?? userRow.avatar ?? userRow.Avatar),
+  };
 }
 
-async function findUserByEmail(email: string): Promise<Raw | null> {
+function buildEmailConstraint(key: string, email: string): string {
+  return JSON.stringify([{ key, exact_match: true, value: email }]);
+}
+
+function nestedAuthEmail(row: Raw): string {
+  const auth = row['authentication'];
+  if (auth && typeof auth === 'object') {
+    const authObj = auth as Raw;
+    const emailObj = authObj['email'];
+    if (emailObj && typeof emailObj === 'object') {
+      const emailValue = (emailObj as Raw)['email'];
+      if (typeof emailValue === 'string') {
+        return emailValue;
+      }
+    }
+    const emailValue = authObj['email'];
+    if (typeof emailValue === 'string') {
+      return emailValue;
+    }
+  }
+  return '';
+}
+
+function emailFieldValue(row: Raw, target: string): string {
+  const found = Object.entries(row).find(
+    ([k, v]) => EMAIL_KEYS.some((key) => normKey(key) === normKey(k)) && typeof v === 'string',
+  );
+  const direct = found ? String(found[1]).trim().toLowerCase() : '';
+  if (direct) {
+    return direct;
+  }
+  return nestedAuthEmail(row).trim().toLowerCase();
+}
+
+function findUserEmail(row: Raw): string {
+  const found = Object.entries(row).find(
+    ([k, v]) => EMAIL_KEYS.some((key) => normKey(key) === normKey(k)) && typeof v === 'string',
+  );
+  if (found) {
+    return String(found[1]);
+  }
+  return nestedAuthEmail(row);
+}
+
+function isUserActive(row: Raw): boolean {
+  const value = row['Activo'] ?? row['Active'] ?? row['Estatus'] ?? row['status'] ?? row['Baja'];
+  if (value === undefined || value === null) return true;
+  const normalized = String(value).toLowerCase();
+  return !(
+    normalized === 'false' ||
+    normalized === '0' ||
+    normalized === 'inactivo' ||
+    normalized === 'inactiva' ||
+    normalized === 'baja' ||
+    normalized === 'disabled' ||
+    normalized === 'suspendido'
+  );
+}
+
+async function queryUserByEmail(email: string): Promise<Raw | null> {
+  const target = email.trim().toLowerCase();
+
+  // 1) Single constraint-based lookup on the primary `email` field.
+  try {
+    const constraints = buildEmailConstraint('email', email.trim());
+    const rows = await fetchList(
+      USER_PATH.map((path) => `${path}?constraints=${encodeURIComponent(constraints)}&limit=5`),
+    );
+    const match = rows.find((row) => emailFieldValue(row, target) === target);
+    if (match) {
+      return match;
+    }
+  } catch {
+    // Fall through to the client-side scan below.
+  }
+
+  // 2) Client-side case-insensitive scan across all email field variants
+  //    (email, Correo, Mail, User Email) plus Bubble's nested
+  //    authentication.email.email structure.
   try {
     const rows = await fetchList(USER_PATH);
-    const targetNorms = EMAIL_KEYS.map(normKey);
-    const match = rows.find((row) =>
-      Object.entries(row).some(
-        ([k, v]) => targetNorms.includes(normKey(k)) && String(v) === email,
-      ),
-    );
+    const match = rows.find((row) => emailFieldValue(row, target) === target);
     return match ?? null;
   } catch {
     return null;

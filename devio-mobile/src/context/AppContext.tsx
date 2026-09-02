@@ -13,11 +13,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Document, Payment, Progress, Unit, User } from '../types';
 import {
   BubbleApiError,
+  buildSaleIdsByUnit,
   fetchRawDocuments,
   fetchRawInstallments,
   fetchRawPayments,
   fetchRawProgress,
   fetchRawProjects,
+  fetchRawSalesForUser,
   fetchRawUnits,
   login as bubbleLogin,
   updateUserPushToken,
@@ -30,6 +32,7 @@ import {
   adaptBubbleProperties,
   type AdaptedExecutedPayment,
   type AdaptedProgressUpdate,
+  type AdaptedProperty,
 } from '../services/bubbleAdapter';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import {
@@ -63,7 +66,7 @@ interface AppContextValue {
   login: (email: string, password: string, useMock?: boolean) => Promise<void>;
   logout: () => void;
   setSelectedProperty: (property: Unit) => void;
-  loadUserProperties: (userId: string) => Promise<void>;
+  loadUserProperties: (userId: string) => Promise<Unit[]>;
   loadPayments: (unitId: string) => Promise<void>;
   loadProgress: (unitId: string) => Promise<void>;
   loadDocuments: (unitId: string) => Promise<void>;
@@ -82,13 +85,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [progressHistory, setProgressHistory] = useState<AdaptedProgressUpdate[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
-  const [usedMockFallback, setUsedMockFallback] = useState(false);
+  const [forceLive, setForceLive] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(true);
 
   const pendingRequests = useRef(0);
+  const isHydratingRef = useRef(false);
+  const hasHydratedRef = useRef<string | null>(null);
+  const userRef = useRef<User | null>(null);
+  const selectedPropertyRef = useRef<Unit | null>(null);
+
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
+  useEffect(() => {
+    selectedPropertyRef.current = selectedProperty;
+  }, [selectedProperty]);
 
   const isAuthenticated = user !== null;
-  const isDemoMode = USE_MOCK_DATA || usedMockFallback;
+  const isLiveMode = !USE_MOCK_DATA || forceLive;
+  const isDemoMode = !isLiveMode;
 
   const setBusy = useCallback((delta: number) => {
     pendingRequests.current = Math.max(0, pendingRequests.current + delta);
@@ -96,7 +112,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const showDiagnostic = useCallback((error: unknown) => {
-    if (USE_MOCK_DATA) return;
+    if (!isLiveMode) return;
     const message =
       error instanceof BubbleApiError
         ? `Status: ${error.statusCode ?? 'N/A'}\n${error.message}`
@@ -104,131 +120,122 @@ export function AppProvider({ children }: { children: ReactNode }) {
           ? error.message
           : String(error);
     Alert.alert('Error de conexión con Bubble', message);
+  }, [isLiveMode]);
+
+  const buildFilterValues = useCallback((unitId: string): string[] => {
+    const property = selectedPropertyRef.current as (AdaptedProperty & Unit) | null;
+    return [
+      unitId,
+      property?.projectId ?? '',
+      ...(property?.saleIds ?? []),
+      userRef.current?._id ?? '',
+    ].filter((value): value is string => value.length > 0);
   }, []);
 
   const loadUserProperties = useCallback(
-    async (userId: string) => {
-      if (USE_MOCK_DATA) {
+    async (userId: string): Promise<Unit[]> => {
+      if (!isLiveMode) {
         setUserProperties(MOCK_PROPERTIES);
         setSelectedPropertyState((current) => current ?? MOCK_PROPERTIES[0] ?? null);
-        return;
+        return MOCK_PROPERTIES;
       }
       setBusy(1);
       try {
-        const [rawUnits, rawProjects] = await Promise.all([
+        const [rawUnits, rawProjects, rawSales] = await Promise.all([
           fetchRawUnits(userId),
           fetchRawProjects(),
+          fetchRawSalesForUser(userId),
         ]);
-        const properties = adaptBubbleProperties(rawUnits, rawProjects);
+        const saleIdsByUnit = buildSaleIdsByUnit(rawSales);
+        const properties = adaptBubbleProperties(rawUnits, rawProjects, saleIdsByUnit);
         if (properties.length > 0) {
           setUserProperties(properties);
           setSelectedPropertyState((current) => current ?? properties[0] ?? null);
-          return;
+          return properties;
         }
-        setUserProperties(MOCK_PROPERTIES);
-        setSelectedPropertyState((current) => current ?? MOCK_PROPERTIES[0] ?? null);
-        setUsedMockFallback(true);
+        setUserProperties([]);
+        return [];
       } catch (error) {
-        setUserProperties(MOCK_PROPERTIES);
-        setSelectedPropertyState((current) => current ?? MOCK_PROPERTIES[0] ?? null);
-        setUsedMockFallback(true);
         showDiagnostic(error);
+        return [];
       } finally {
         setBusy(-1);
       }
     },
-    [setBusy, showDiagnostic],
+    [isLiveMode, setBusy, showDiagnostic],
   );
 
   const loadPayments = useCallback(
     async (unitId: string) => {
-      if (USE_MOCK_DATA) {
+      if (!isLiveMode) {
         setPayments(MOCK_PAYMENTS);
         setExecutedPayments(MOCK_EXECUTED_PAYMENTS);
         return;
       }
       setBusy(1);
       try {
+        const filterValues = buildFilterValues(unitId);
         const [rawInstallments, rawPagos] = await Promise.all([
-          fetchRawInstallments(unitId),
-          fetchRawPayments(unitId),
+          fetchRawInstallments(filterValues),
+          fetchRawPayments(filterValues),
         ]);
         const installments = adaptBubbleInstallments(rawInstallments);
         const executed = adaptBubblePayments(rawPagos);
-        setPayments(installments.length > 0 ? installments : MOCK_PAYMENTS);
-        setExecutedPayments(executed.length > 0 ? executed : MOCK_EXECUTED_PAYMENTS);
-        if (installments.length === 0 || executed.length === 0) {
-          setUsedMockFallback(true);
-        }
+        setPayments(installments);
+        setExecutedPayments(executed);
       } catch (error) {
-        setPayments(MOCK_PAYMENTS);
-        setExecutedPayments(MOCK_EXECUTED_PAYMENTS);
-        setUsedMockFallback(true);
         showDiagnostic(error);
       } finally {
         setBusy(-1);
       }
     },
-    [setBusy, showDiagnostic],
+    [isLiveMode, buildFilterValues, setBusy, showDiagnostic],
   );
 
   const loadProgress = useCallback(
     async (unitId: string) => {
-      if (USE_MOCK_DATA) {
+      if (!isLiveMode) {
         setProgress(MOCK_PROGRESS);
         setProgressHistory(MOCK_PROGRESS_HISTORY);
         return;
       }
       setBusy(1);
       try {
-        const rawUpdates = await fetchRawProgress(unitId);
+        const rawUpdates = await fetchRawProgress(buildFilterValues(unitId));
         const { specialties, history } = adaptBubbleProgress(rawUpdates);
-        setProgress(specialties.length > 0 ? specialties : MOCK_PROGRESS);
-        setProgressHistory(history.length > 0 ? history : MOCK_PROGRESS_HISTORY);
-        if (history.length === 0) {
-          setUsedMockFallback(true);
-        }
+        setProgress(specialties);
+        setProgressHistory(history);
       } catch (error) {
-        setProgress(MOCK_PROGRESS);
-        setProgressHistory(MOCK_PROGRESS_HISTORY);
-        setUsedMockFallback(true);
         showDiagnostic(error);
       } finally {
         setBusy(-1);
       }
     },
-    [setBusy, showDiagnostic],
+    [isLiveMode, buildFilterValues, setBusy, showDiagnostic],
   );
 
   const loadDocuments = useCallback(
     async (unitId: string) => {
-      if (USE_MOCK_DATA) {
+      if (!isLiveMode) {
         setDocuments(MOCK_DOCUMENTS);
         return;
       }
       setBusy(1);
       try {
-        const rawDocs = await fetchRawDocuments(unitId);
+        const rawDocs = await fetchRawDocuments(buildFilterValues(unitId));
         const docs = adaptBubbleDocuments(rawDocs);
-        if (docs.length > 0) {
-          setDocuments(docs);
-          return;
-        }
-        setDocuments(MOCK_DOCUMENTS);
-        setUsedMockFallback(true);
+        setDocuments(docs);
       } catch (error) {
-        setDocuments(MOCK_DOCUMENTS);
-        setUsedMockFallback(true);
         showDiagnostic(error);
       } finally {
         setBusy(-1);
       }
     },
-    [setBusy, showDiagnostic],
+    [buildFilterValues, setBusy, showDiagnostic],
   );
 
   const registerUserPushToken = useCallback(async (userId: string) => {
-    if (USE_MOCK_DATA || !userId) return;
+    if (!isLiveMode || !userId) return;
     try {
       const pushToken = await registerForPushNotificationsAsync();
       if (pushToken) {
@@ -237,37 +244,77 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch {
       // Push registration is best-effort and must not block the app.
     }
-  }, []);
+  }, [isLiveMode]);
+
+  const hydrateUserData = useCallback(
+    async (userId: string, unitId?: string) => {
+      if (isHydratingRef.current || hasHydratedRef.current === userId) {
+        return;
+      }
+      isHydratingRef.current = true;
+      setBusy(1);
+      try {
+        const properties = await loadUserProperties(userId);
+        if (__DEV__) {
+          console.log(
+            `[BubbleAuth] User ID: ${userId} | User Email: ${userRef.current?.email ?? 'N/A'} | Linked Unit Count: ${properties.length}`,
+          );
+        }
+        if (properties.length > 0) {
+          setSelectedPropertyState((current) => current ?? properties[0] ?? null);
+        }
+        const targetUnitId = unitId ?? properties[0]?._id;
+        if (targetUnitId) {
+          await Promise.all([
+            loadPayments(targetUnitId),
+            loadProgress(targetUnitId),
+            loadDocuments(targetUnitId),
+          ]);
+        }
+      } catch (error) {
+        showDiagnostic(error);
+      } finally {
+        isHydratingRef.current = false;
+        hasHydratedRef.current = userId;
+        setBusy(-1);
+      }
+    },
+    [loadUserProperties, loadPayments, loadProgress, loadDocuments, setBusy, showDiagnostic],
+  );
 
   const login = useCallback(
     async (email: string, password: string, useMock = false) => {
       setIsLoading(true);
-      setUsedMockFallback(false);
       try {
         if (USE_MOCK_DATA || useMock) {
           const mockUser: User = { ...MOCK_USER, email, token: 'mock-token' };
+          setForceLive(false);
           setUser(mockUser);
           setUserProperties(MOCK_PROPERTIES);
           setSelectedPropertyState((current) => current ?? MOCK_PROPERTIES[0] ?? null);
-          setUsedMockFallback(true);
           await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user: mockUser }));
           return;
         }
 
         const loggedUser = await bubbleLogin(email, password);
+        setForceLive(true);
         setUser(loggedUser);
+        hasHydratedRef.current = null;
         await AsyncStorage.setItem(SESSION_KEY, JSON.stringify({ user: loggedUser }));
-        await loadUserProperties(loggedUser._id);
+        await hydrateUserData(loggedUser._id, loggedUser.assignedProperties?.[0]);
         void registerUserPushToken(loggedUser._id);
       } finally {
         setIsLoading(false);
       }
     },
-    [loadUserProperties, registerUserPushToken],
+    [hydrateUserData, registerUserPushToken],
   );
 
   const logout = useCallback(async () => {
     await AsyncStorage.removeItem(SESSION_KEY);
+    isHydratingRef.current = false;
+    hasHydratedRef.current = null;
+    setForceLive(false);
     setUser(null);
     setUserProperties([]);
     setSelectedPropertyState(null);
@@ -276,7 +323,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setDocuments([]);
     setExecutedPayments([]);
     setProgressHistory([]);
-    setUsedMockFallback(false);
   }, []);
 
   const setSelectedProperty = useCallback((property: Unit) => {
@@ -292,15 +338,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(raw) as { user?: User };
           if (parsed?.user) {
             setUser(parsed.user);
-            if (USE_MOCK_DATA) {
+            const isMockSession = parsed.user.token === 'mock-token';
+            setForceLive(!isMockSession && !USE_MOCK_DATA);
+            if (isMockSession || USE_MOCK_DATA) {
               setUserProperties(MOCK_PROPERTIES);
               setSelectedPropertyState(MOCK_PROPERTIES[0] ?? null);
               setPayments(MOCK_PAYMENTS);
               setProgress(MOCK_PROGRESS);
               setDocuments(MOCK_DOCUMENTS);
-              setUsedMockFallback(true);
             } else {
-              await loadUserProperties(parsed.user._id);
+              await hydrateUserData(parsed.user._id, parsed.user.assignedProperties?.[0]);
               void registerUserPushToken(parsed.user._id);
             }
           }
@@ -316,7 +363,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [loadUserProperties, registerUserPushToken]);
+  }, [hydrateUserData, registerUserPushToken]);
 
   const value = useMemo<AppContextValue>(
     () => ({
