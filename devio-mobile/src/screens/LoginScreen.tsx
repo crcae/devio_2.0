@@ -5,24 +5,22 @@ import {
   Image,
   Pressable,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Eye, EyeOff, FlaskConical, Lock, Mail } from 'lucide-react-native';
+import { Eye, EyeOff, Lock, Mail } from 'lucide-react-native';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
-  const { login, isLoading: isAuthenticating, isDemoMode } = useApp();
+  const { login, isLoading: isAuthenticating } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
-  const [mockEnabled, setMockEnabled] = useState(isDemoMode);
   const [showPassword, setShowPassword] = useState(false);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
@@ -38,7 +36,7 @@ export default function LoginScreen() {
     }
     setError(null);
     try {
-      await login(email.trim(), password.trim(), mockEnabled);
+      await login(email.trim(), password.trim());
     } catch (err) {
       setError(err instanceof Error ? err.message : 'No fue posible iniciar sesión.');
     }
@@ -55,11 +53,13 @@ export default function LoginScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.branding}>
-        <Image
-          source={require('../../assets/devio-logo.png')}
-          style={styles.logoImage}
-          resizeMode="contain"
-        />
+        <View style={styles.logoBadge}>
+          <Image
+            source={require('../../assets/devio-logo.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
+        </View>
         <Text style={styles.logo}>DEVIO</Text>
         <Text style={styles.heading}>Bienvenido a DEVIO</Text>
         <Text style={styles.subtitle}>Ingresa con los accesos proporcionados por tu asesor</Text>
@@ -131,26 +131,7 @@ export default function LoginScreen() {
           )}
         </Pressable>
 
-        <View style={styles.demoToggle}>
-          <View style={styles.demoToggleIcon}>
-            <FlaskConical size={16} color={COLORS.gold} strokeWidth={2} />
-          </View>
-          <View style={styles.demoToggleText}>
-            <Text style={styles.demoToggleLabel}>Modo Pruebas (Mock Data)</Text>
-            <Text style={styles.demoToggleHint}>
-              {mockEnabled
-                ? 'Inicia sesión sin conexión a Bubble'
-                : 'Usa autenticación real de Bubble'}
-            </Text>
-          </View>
-          <Switch
-            value={mockEnabled}
-            onValueChange={setMockEnabled}
-            trackColor={{ false: COLORS.border, true: COLORS.gold }}
-            thumbColor={COLORS.surface}
-            style={styles.demoSwitch}
-          />
-        </View>
+        <Text style={styles.footer}>DEVIO · Tu inversión en tiempo real</Text>
       </View>
     </SafeAreaView>
   );
@@ -167,11 +148,19 @@ const styles = StyleSheet.create({
     paddingBottom: SPACING.lg,
     alignItems: 'center',
   },
-  logoImage: {
-    width: 68,
-    height: 68,
-    borderRadius: 14,
+  logoBadge: {
+    width: 72,
+    height: 72,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: SPACING.sm,
+  },
+  logoImage: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
   },
   logo: {
     fontSize: 26,
@@ -207,9 +196,10 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
     marginBottom: SPACING.lg,
+    letterSpacing: 0.2,
   },
   label: {
     fontSize: 13,
@@ -266,6 +256,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: SPACING.sm,
     marginBottom: SPACING.lg,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   buttonPressed: {
     opacity: 0.9,
@@ -275,37 +270,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
-  demoToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  footer: {
     marginTop: 'auto',
-    paddingTop: SPACING.md,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: COLORS.border,
-  },
-  demoToggleIcon: {
-    width: 30,
-    height: 30,
-    borderRadius: RADIUS.sm,
-    backgroundColor: COLORS.goldLight,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  demoToggleText: {
-    flex: 1,
-    marginLeft: SPACING.sm,
-  },
-  demoToggleLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  demoToggleHint: {
-    fontSize: 11,
+    textAlign: 'center',
+    fontSize: 12,
     color: COLORS.textSecondary,
-    marginTop: 1,
-  },
-  demoSwitch: {
-    transform: [{ scale: 0.8 }],
+    letterSpacing: 0.5,
   },
 });

@@ -81,6 +81,8 @@ export default function DashboardScreen({ navigation }: Props) {
 
   const data = userProperties.length > 0 ? userProperties : isDemoMode ? MOCK_PROPERTIES : [];
   const showOverlay = dataLoading && userProperties.length === 0;
+  const notifications = user?.notifications !== undefined ? user.notifications : MOCK_NOTIFICATIONS;
+  const notificationCount = notifications.length;
 
   const openProfileTab = () => {
     navigation.navigate('user');
@@ -159,9 +161,13 @@ export default function DashboardScreen({ navigation }: Props) {
               accessibilityLabel="Notificaciones"
             >
               <Bell size={18} color={COLORS.primary} strokeWidth={2} />
-              <View style={styles.notificationDot}>
-                <Text style={styles.notificationDotText}>1</Text>
-              </View>
+              {notificationCount > 0 ? (
+                <View style={styles.notificationDot}>
+                  <Text style={styles.notificationDotText}>
+                    {notificationCount > 99 ? '99+' : notificationCount}
+                  </Text>
+                </View>
+              ) : null}
             </Pressable>
             <Pressable
               style={({ pressed }) => [styles.avatarCircle, pressed && styles.pressed]}
@@ -238,7 +244,9 @@ export default function DashboardScreen({ navigation }: Props) {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>Notificaciones</Text>
-                <Text style={styles.modalSubtitle}>3 novedades recientes</Text>
+                <Text style={styles.modalSubtitle}>
+                  {notificationCount === 1 ? '1 novedad' : `${notificationCount} novedades`}
+                </Text>
               </View>
               <Pressable
                 style={styles.modalClose}
@@ -249,18 +257,23 @@ export default function DashboardScreen({ navigation }: Props) {
               </Pressable>
             </View>
 
-            {MOCK_NOTIFICATIONS.map((notification) => (
-              <View key={notification.id} style={styles.notificationRow}>
-                <View style={styles.notificationIcon}>
-                  <notification.icon size={20} color={COLORS.gold} strokeWidth={2} />
+            {notifications.map((notification) => {
+              const IconComponent = (notification as Partial<AppNotification>).icon ?? Bell;
+              return (
+                <View key={notification.id} style={styles.notificationRow}>
+                  <View style={styles.notificationIcon}>
+                    <IconComponent size={20} color={COLORS.gold} strokeWidth={2} />
+                  </View>
+                  <View style={styles.notificationBody}>
+                    <Text style={styles.notificationTitle}>{notification.title}</Text>
+                    {notification.detail ? (
+                      <Text style={styles.notificationDetail}>{notification.detail}</Text>
+                    ) : null}
+                  </View>
+                  <Text style={styles.notificationTime}>{notification.time}</Text>
                 </View>
-                <View style={styles.notificationBody}>
-                  <Text style={styles.notificationTitle}>{notification.title}</Text>
-                  <Text style={styles.notificationDetail}>{notification.detail}</Text>
-                </View>
-                <Text style={styles.notificationTime}>{notification.time}</Text>
-              </View>
-            ))}
+              );
+            })}
           </Pressable>
         </Pressable>
       </Modal>
@@ -290,10 +303,10 @@ const styles = StyleSheet.create({
     borderRadius: 7,
   },
   logo: {
-    fontSize: 22,
+    fontSize: 23,
     fontWeight: '800',
     color: COLORS.surface,
-    letterSpacing: 4,
+    letterSpacing: 3.5,
   },
   logoWrap: {
     flexDirection: 'row',
@@ -305,13 +318,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   notificationCircle: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.surface,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: SPACING.md,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   notificationDot: {
     position: 'absolute',
@@ -336,13 +354,20 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   avatarCircle: {
-    width: 40,
-    height: 40,
+    width: 42,
+    height: 42,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.surface,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: COLORS.gold,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   avatarImage: {
     width: '100%',
@@ -367,24 +392,25 @@ const styles = StyleSheet.create({
     marginTop: SPACING.md,
   },
   sectionHeader: {
-    marginBottom: SPACING.md,
+    marginBottom: SPACING.lg,
   },
   sectionTitle: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.2,
   },
   card: {
     backgroundColor: COLORS.surface,
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.8)',
     marginBottom: SPACING.lg,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.07,
+    shadowRadius: 14,
     elevation: 4,
   },
   cardActive: {
@@ -396,7 +422,7 @@ const styles = StyleSheet.create({
   },
   propertyImage: {
     width: '100%',
-    height: 160,
+    height: 176,
     borderRadius: 16,
   },
   propertyImagePlaceholder: {
@@ -406,29 +432,39 @@ const styles = StyleSheet.create({
   },
   tag: {
     position: 'absolute',
-    top: SPACING.sm,
-    left: SPACING.sm,
-    backgroundColor: COLORS.surface,
+    top: SPACING.md,
+    left: SPACING.md,
+    backgroundColor: 'rgba(255,255,255,0.95)',
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.md,
     paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   tagText: {
     fontSize: 12,
     fontWeight: '700',
     color: COLORS.textPrimary,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
   },
   cardBody: {
     padding: SPACING.md,
+    paddingTop: SPACING.md,
   },
   cardTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.1,
   },
   cardLocation: {
-    marginTop: 2,
+    marginTop: 3,
     fontSize: 13,
+    lineHeight: 18,
     color: COLORS.textSecondary,
   },
   badgesRow: {
@@ -441,12 +477,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.md,
-    paddingVertical: 6,
+    paddingVertical: 7,
     marginRight: SPACING.sm,
   },
   badgeText: {
     marginLeft: 6,
-    fontSize: 12,
+    fontSize: 12.5,
     fontWeight: '600',
     color: COLORS.textPrimary,
   },

@@ -58,6 +58,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.14)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.18)',
   },
   pressed: {
     opacity: 0.7,
@@ -67,9 +69,10 @@ const styles = StyleSheet.create({
     marginLeft: SPACING.md,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 19,
+    fontWeight: '800',
     color: COLORS.surface,
+    letterSpacing: 0.2,
   },
   subtitle: {
     fontSize: 12,

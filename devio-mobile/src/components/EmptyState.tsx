@@ -28,19 +28,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.lg,
   },
   iconCircle: {
-    width: 80,
-    height: 80,
+    width: 84,
+    height: 84,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.goldLight,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(200,158,106,0.5)',
   },
   title: {
     marginTop: SPACING.md,
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
     textAlign: 'center',
+    letterSpacing: 0.2,
   },
   description: {
     marginTop: SPACING.xs,
@@ -48,5 +51,6 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     textAlign: 'center',
     lineHeight: 19,
+    maxWidth: 260,
   },
 });

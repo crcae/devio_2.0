@@ -15,6 +15,7 @@ import {
   BubbleApiError,
   buildSaleIdsByUnit,
   fetchRawDocuments,
+  fetchRawExecutedPayments,
   fetchRawInstallments,
   fetchRawPayments,
   fetchRawProgress,
@@ -26,6 +27,7 @@ import {
   setActiveBaseUrl,
   updateUserProfile,
   updateUserPushToken,
+  type Raw,
 } from '../services/bubbleApi';
 import {
   adaptBubbleDocuments,
@@ -39,7 +41,6 @@ import {
 } from '../services/bubbleAdapter';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import {
-  MOCK_DOCUMENTS,
   MOCK_EXECUTED_PAYMENTS,
   MOCK_PAYMENTS,
   MOCK_PROGRESS,
@@ -131,6 +132,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const property = selectedPropertyRef.current as (AdaptedProperty & Unit) | null;
     return [
       unitId,
+      property?.name ?? '',
       property?.projectId ?? '',
       ...(property?.saleIds ?? []),
       userRef.current?._id ?? '',
@@ -180,12 +182,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setBusy(1);
       try {
         const filterValues = buildFilterValues(unitId);
-        const [rawInstallments, rawPagos] = await Promise.all([
+        const [rawInstallments, rawScheduled, rawExecuted] = await Promise.all([
           fetchRawInstallments(filterValues),
           fetchRawPayments(filterValues),
+          fetchRawExecutedPayments(filterValues),
         ]);
-        const installments = adaptBubbleInstallments(rawInstallments);
-        const executed = adaptBubblePayments(rawPagos);
+        // Estado de Cuenta: scheduled installments (Installment + Payments).
+        const combined: Raw[] = [];
+        const seen = new Set<string>();
+        for (const row of [...rawInstallments, ...rawScheduled]) {
+          const key = String(row._id ?? row.id ?? '');
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          combined.push(row);
+        }
+        const installments = adaptBubbleInstallments(combined);
+        // Pagos tab: executed transactions (Pago / Pagos).
+        const executed = adaptBubblePayments(rawExecuted);
         setPayments(installments);
         setExecutedPayments(executed);
       } catch (error) {
@@ -222,7 +235,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const loadDocuments = useCallback(
     async (unitId: string) => {
       if (!isLiveMode) {
-        setDocuments(MOCK_DOCUMENTS);
+        // Documents reflect real Bubble data only; never mock them.
+        setDocuments([]);
         return;
       }
       setBusy(1);
@@ -372,7 +386,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               setSelectedPropertyState(MOCK_PROPERTIES[0] ?? null);
               setPayments(MOCK_PAYMENTS);
               setProgress(MOCK_PROGRESS);
-              setDocuments(MOCK_DOCUMENTS);
+              setDocuments([]);
             } else {
               await hydrateUserData(parsed.user._id, parsed.user.assignedProperties?.[0]);
               void registerUserPushToken(parsed.user._id);

@@ -17,6 +17,7 @@ import {
   Calendar,
   Camera,
   ChevronLeft,
+  ChevronRight,
   Grid3x3,
   PaintRoller,
   Wrench,
@@ -27,7 +28,7 @@ import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import type { Progress } from '../types';
 import type { RootStackParamList } from '../navigation/types';
-import type { AdaptedProgressUpdate } from '../services/bubbleAdapter';
+import type { AdaptedProgressUpdate, AdaptedProperty } from '../services/bubbleAdapter';
 import { MOCK_PROGRESS_HISTORY } from '../services/mockData';
 import EmptyState from '../components/EmptyState';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
@@ -55,15 +56,28 @@ const MOCK_SPECIALTIES: SpecialtyRow[] = SPECIALTY_DEFS.map((def, index) => ({
   icon: def.icon,
 }));
 
-function formatDeliveryDate(iso: string): string {
-  if (!iso) return 'May 15, 2028';
-  const [y, m, d] = iso.split('-');
+function parseDeliveryDate(raw: string): Date | null {
+  if (!raw) return null;
+  const iso = new Date(raw);
+  if (!Number.isNaN(iso.getTime())) return iso;
+  const dmy = raw.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})/);
+  if (dmy) {
+    return new Date(Number(dmy[3]), Number(dmy[2]) - 1, Number(dmy[1]));
+  }
+  return null;
+}
+
+function formatDeliveryDate(raw: string): string {
+  const date = parseDeliveryDate(raw);
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[Number(m) - 1]} ${Number(d)}, ${y}`;
+  if (date) {
+    return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+  }
+  return raw || 'May 15, 2028';
 }
 
 function ProgressRing({ percentage }: { percentage: number }) {
-  const size = 92;
+  const size = 96;
   const strokeWidth = 10;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -76,7 +90,7 @@ function ProgressRing({ percentage }: { percentage: number }) {
           cx={size / 2}
           cy={size / 2}
           r={radius}
-          stroke="#E2E8F0"
+          stroke="#E8EDF3"
           strokeWidth={strokeWidth}
           fill="none"
         />
@@ -96,6 +110,7 @@ function ProgressRing({ percentage }: { percentage: number }) {
       </Svg>
       <View style={styles.ringCenter}>
         <Text style={styles.ringPercent}>{percentage}%</Text>
+        <Text style={styles.ringCaption}>Avance</Text>
       </View>
     </View>
   );
@@ -158,12 +173,19 @@ export default function ProgressScreen({ navigation }: Props) {
   }, [progress]);
 
   const overall = useMemo(() => {
+    // Prefer the latest history item's "Avance Obra General" percentage.
+    if (progressHistory.length > 0) {
+      const latestOverall = progressHistory[0]?.overall ?? 0;
+      if (latestOverall > 0) {
+        return latestOverall;
+      }
+    }
     const fromProgress = progress.reduce((sum, p) => sum + (p.percentage ?? 0), 0) / Math.max(progress.length, 1);
     if (progress.length > 0 && fromProgress > 0) {
       return Math.round(fromProgress);
     }
     return selectedProperty?.generalProgress ?? 21;
-  }, [progress, selectedProperty?.generalProgress]);
+  }, [progress, progressHistory, selectedProperty?.generalProgress]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -278,22 +300,49 @@ export default function ProgressScreen({ navigation }: Props) {
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>Histórico Avances de Obra</Text>
             {historyList.length > 0 ? (
-              historyList.map((update) => (
-                <Pressable
-                  key={update.id}
-                  style={({ pressed }) => [styles.historyCard, pressed && styles.pressed]}
-                  onPress={() => setActiveUpdate(update)}
-                >
-                  <View style={styles.historyThumb}>
-                    <Camera size={18} color={COLORS.gold} strokeWidth={1.8} />
-                  </View>
-                  <View style={styles.historyBody}>
-                    <Text style={styles.historyTitle}>{update.title}</Text>
-                    <Text style={styles.historyDate}>{update.date}</Text>
-                  </View>
-                  <Text style={styles.historyPercent}>{update.overall}%</Text>
-                </Pressable>
-              ))
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.historyCarousel}
+              >
+                {historyList.map((update) => {
+                  const photoUrl =
+                    update.photos[0]?.url ||
+                    (selectedProperty as AdaptedProperty | null)?.images?.[0];
+                  return (
+                    <Pressable
+                      key={update.id}
+                      style={({ pressed }) => [styles.historyPhotoCard, pressed && styles.pressed]}
+                      onPress={() => setActiveUpdate(update)}
+                    >
+                      <View style={styles.historyPhotoWrap}>
+                        {photoUrl ? (
+                          <Image source={{ uri: photoUrl }} style={styles.historyPhoto} resizeMode="cover" />
+                        ) : (
+                          <View style={[styles.historyPhotoTone, { backgroundColor: COLORS.primary }]}>
+                            <Camera size={28} color={COLORS.gold} strokeWidth={1.6} />
+                          </View>
+                        )}
+                        <View style={styles.historyPhotoPercent}>
+                          <Text style={styles.historyPhotoPercentText}>{update.overall}%</Text>
+                        </View>
+                        <View style={styles.historyPhotoDateBadge}>
+                          <Text style={styles.historyPhotoDateBadgeText}>{update.dateCard}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.historyPhotoBody}>
+                        <Text style={styles.historyPhotoTitle} numberOfLines={1}>
+                          {update.title}
+                        </Text>
+                        <View style={styles.historyPhotoCta}>
+                          <Text style={styles.historyPhotoCtaText}>Ver detalle</Text>
+                          <ChevronRight size={14} color={COLORS.gold} />
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
             ) : (
               <EmptyState
                 icon={Camera}
@@ -528,14 +577,16 @@ const styles = StyleSheet.create({
   kpiCard: {
     flexDirection: 'row',
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.lg,
     marginBottom: SPACING.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 2,
   },
   kpiLeft: {
     flex: 1,
@@ -554,6 +605,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.2,
+  },
+  ringCaption: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    marginTop: 1,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   kpiLabel: {
     marginTop: SPACING.sm,
@@ -562,7 +622,7 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
   },
   kpiDivider: {
-    width: 1,
+    width: StyleSheet.hairlineWidth,
     backgroundColor: COLORS.border,
     marginHorizontal: SPACING.lg,
   },
@@ -572,13 +632,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   kpiCalendarBadge: {
-    width: 44,
-    height: 44,
+    width: 48,
+    height: 48,
     borderRadius: RADIUS.md,
     backgroundColor: COLORS.goldLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: SPACING.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(200,158,106,0.5)',
   },
   kpiRightLabel: {
     fontSize: 13,
@@ -586,28 +648,32 @@ const styles = StyleSheet.create({
   },
   kpiRightValue: {
     marginTop: 4,
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 17,
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.2,
   },
   sectionCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.md,
     marginBottom: SPACING.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   sectionHeader: {
     marginBottom: SPACING.md,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.1,
   },
   updateRow: {
     flexDirection: 'row',
@@ -628,18 +694,20 @@ const styles = StyleSheet.create({
   specialtyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 10,
   },
   specialtyChip: {
-    width: 34,
-    height: 34,
-    borderRadius: RADIUS.pill,
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     backgroundColor: COLORS.goldLight,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(200,158,106,0.4)',
   },
   specialtyLabel: {
-    width: 88,
+    width: 92,
     marginLeft: SPACING.sm,
     fontSize: 13,
     fontWeight: '600',
@@ -647,9 +715,9 @@ const styles = StyleSheet.create({
   },
   specialtyTrack: {
     flex: 1,
-    height: 8,
+    height: 9,
     borderRadius: RADIUS.pill,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#E8EDF3',
     overflow: 'hidden',
   },
   specialtyFill: {
@@ -658,10 +726,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.gold,
   },
   specialtyPercent: {
-    width: 38,
+    width: 40,
     textAlign: 'right',
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.gold,
   },
   historyCard: {
@@ -698,6 +766,92 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: COLORS.gold,
+  },
+  historyCarousel: {
+    marginHorizontal: -SPACING.lg,
+    paddingHorizontal: SPACING.lg,
+    paddingTop: SPACING.xs,
+  },
+  historyPhotoCard: {
+    width: 190,
+    borderRadius: RADIUS.lg,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginRight: SPACING.md,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  historyPhotoWrap: {
+    position: 'relative',
+    width: '100%',
+    height: 118,
+    backgroundColor: COLORS.primary,
+  },
+  historyPhoto: {
+    width: '100%',
+    height: '100%',
+    borderTopLeftRadius: RADIUS.lg,
+    borderTopRightRadius: RADIUS.lg,
+  },
+  historyPhotoTone: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderTopLeftRadius: RADIUS.lg,
+    borderTopRightRadius: RADIUS.lg,
+  },
+  historyPhotoPercent: {
+    position: 'absolute',
+    top: SPACING.sm,
+    right: SPACING.sm,
+    backgroundColor: 'rgba(31,54,82,0.92)',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+  },
+  historyPhotoPercentText: {
+    color: COLORS.surface,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  historyPhotoDateBadge: {
+    position: 'absolute',
+    left: SPACING.sm,
+    bottom: SPACING.sm,
+    backgroundColor: 'rgba(15,23,42,0.72)',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+  },
+  historyPhotoDateBadgeText: {
+    color: COLORS.surface,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  historyPhotoBody: {
+    padding: SPACING.md,
+  },
+  historyPhotoTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  historyPhotoCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: SPACING.sm,
+  },
+  historyPhotoCtaText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.gold,
+    marginRight: 2,
   },
   modalRoot: {
     flex: 1,

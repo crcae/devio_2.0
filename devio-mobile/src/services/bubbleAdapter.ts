@@ -26,6 +26,7 @@ export interface AdaptedProgressUpdate {
   title: string;
   date: string;
   dateShort: string;
+  dateCard: string;
   overall: number;
   parts: AdaptedProgressPart[];
   photos: AdaptedProgressPhoto[];
@@ -40,6 +41,12 @@ export type AdaptedProperty = Unit & {
   saleIds?: string[];
   tipo?: string;
   location?: string;
+  projectName?: string;
+  images?: string[];
+  parking?: number;
+  floor?: number;
+  notes?: string;
+  constructionArea?: number;
 };
 
 const SPANISH_MONTHS = [
@@ -56,6 +63,7 @@ function normKey(key: string): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[²³¹]/g, (c) => ({ '²': '2', '³': '3', '¹': '1' })[c] ?? c)
+    .replace(/[.]+/g, '')
     .replace(/[\s_]+/g, '');
 }
 
@@ -91,8 +99,12 @@ function toNumber(value: unknown, fallback = 0): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
   if (typeof value === 'string') {
     const cleaned = value.replace(/[$,\s]/g, '');
-    const parsed = Number(cleaned);
-    return Number.isFinite(parsed) ? parsed : fallback;
+    const match = cleaned.match(/-?\d+(\.\d+)?/);
+    if (match) {
+      const parsed = Number(match[0]);
+      return Number.isFinite(parsed) ? parsed : fallback;
+    }
+    return fallback;
   }
   return fallback;
 }
@@ -130,6 +142,14 @@ function formatShortDate(raw: string): string {
   return `${dd}/${mm}/${yy}`;
 }
 
+const EN_MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function formatCardDate(raw: string): string {
+  const date = parseDate(raw);
+  if (!date) return raw || '';
+  return `${EN_MONTHS_SHORT[date.getMonth()]} ${String(date.getDate()).padStart(2, '0')}, ${String(date.getFullYear()).slice(2)}`;
+}
+
 function formatPaymentDate(raw: string): string {
   const date = parseDate(raw);
   if (!date) return raw || '';
@@ -154,10 +174,10 @@ function isActivePayment(raw: Raw): boolean {
 }
 
 const SPECIALTY_FIELDS: Array<{ name: string; variants: string[] }> = [
-  { name: 'Cimentación', variants: ['Cimentación', 'Cimentacion'] },
-  { name: 'Estructura', variants: ['Estructura'] },
-  { name: 'Instalaciones', variants: ['Instalaciones', 'Instalaciones Eléctricas', 'Instalaciones Electricas'] },
-  { name: 'Acabados', variants: ['Acabados'] },
+  { name: 'Cimentación', variants: ['Cimentación%', 'Cimentacion%', 'Cimentación', 'Cimentacion'] },
+  { name: 'Estructura', variants: ['Estructura%', 'Estructura'] },
+  { name: 'Instalaciones', variants: ['Instalaciones%', 'Instalaciones Eléctricas', 'Instalaciones Electricas', 'Instalaciones'] },
+  { name: 'Acabados', variants: ['Acabados%', 'Acabados'] },
 ];
 
 export function adaptBubbleProperty(
@@ -165,30 +185,50 @@ export function adaptBubbleProperty(
   rawProject?: Raw,
   saleIds: string[] = [],
 ): AdaptedProperty {
-  const heroImage = formatImageUrl(toString(getField(rawUnit, ['imagen', 'Imagen', 'Foto', 'Image', 'Imagen Principal', 'Hero Image']))) ?? '';
-  const projectImage = rawProject
-    ? formatImageUrl(toString(getField(rawProject, ['imagen', 'Imagen', 'Imagen Principal', 'Hero Image', 'Image']))) ?? ''
-    : '';
-  const totalPrice = toNumber(
-    getField(rawUnit, ['Precio de Venta', 'Precio', 'Price', 'Total Price']),
-    rawProject ? toNumber(getField(rawProject, ['Precio', 'Precio de Venta', 'Price'])) : 0,
-  );
-  const totalPaid = toNumber(getField(rawUnit, ['Total Pagado', 'Pagado', 'Paid', 'Total Paid']));
   const projectName = rawProject
-    ? toString(getField(rawProject, ['name', 'Nombre', 'Name', 'Proyecto']), 'Propiedad')
+    ? toString(getField(rawProject, ['name', 'Nombre', 'Name', 'Proyecto']), '')
     : '';
   const projectLocation = rawProject
     ? toString(getField(rawProject, ['location', 'Location', 'Ubicación', 'Ubicacion', 'Dirección', 'Direccion']))
     : '';
 
+  // Project / unit image sources (array or single).
+  const projectMedia = rawProject
+    ? getField(rawProject, ['fotos', 'Fotos', 'photos', 'Photos', 'imagen', 'Imagen', 'Imagen Principal', 'Hero Image', 'Image'])
+    : undefined;
+  const unitMedia = getField(rawUnit, ['imagen', 'Imagen', 'Foto', 'Image', 'Fotos']);
+  const images: string[] = [];
+  const mediaSources = [
+    ...(Array.isArray(projectMedia) ? (projectMedia as unknown[]) : projectMedia !== undefined ? [projectMedia] : []),
+    ...(Array.isArray(unitMedia) ? (unitMedia as unknown[]) : unitMedia !== undefined ? [unitMedia] : []),
+  ];
+  for (const source of mediaSources) {
+    const url = formatImageUrl(toString(source));
+    if (url && !images.includes(url)) {
+      images.push(url);
+    }
+  }
+  const heroImageUrl = images[0] ?? '';
+
+  const totalPrice = toNumber(
+    getField(rawUnit, ['Precio de Venta', 'Precio', 'Price', 'Total Price']),
+    rawProject ? toNumber(getField(rawProject, ['Precio', 'Precio de Venta', 'Price'])) : 0,
+  );
+  const totalPaid = toNumber(getField(rawUnit, ['Total Pagado', 'Pagado', 'Paid', 'Total Paid']));
+
+  const unitLabel = toString(
+    getField(rawUnit, ['Nombre', 'name', 'Name', 'Nombre de Unidad', '# Unidad', 'Numero', 'Número', 'Unit Code', 'Código de Unidad', 'Codigo de Unidad']),
+  );
+  const displayName = [projectName, unitLabel].filter(Boolean).join(' | ') || unitLabel || projectName || 'Propiedad';
+
   return {
     _id: toString(getField(rawUnit, ['_id', 'id'])),
-    name: toString(getField(rawUnit, ['Nombre', 'Name', 'name', 'Nombre de Unidad']), projectName),
-    unitCode: toString(getField(rawUnit, ['# Unidad', 'Numero', 'Número', 'Código de Unidad', 'Codigo de Unidad', 'Unit Code', 'Código', 'Codigo'])),
-    surfaceM2: toNumber(getField(rawUnit, ['Superficie (m²)', 'Superficie (m2)', 'Superficie', 'Área', 'Area', 'm2', 'Surface'])),
-    bedrooms: toNumber(getField(rawUnit, ['Número de recámaras', 'Numero de recamaras', 'Recámaras', 'Recamaras', 'Cuartos', 'Bedrooms'])),
-    bathrooms: toNumber(getField(rawUnit, ['Número de baños', 'Numero de banos', 'Baños', 'Banos', 'Bathrooms'])),
-    image: heroImage || projectImage,
+    name: displayName,
+    unitCode: unitLabel,
+    surfaceM2: toNumber(getField(rawUnit, ['Superficie (m²)', 'Superficie (m2)', 'Superficie', 'Área total de construcción. m²', 'Área total de construcción m²', 'Área', 'Area', 'm2', 'Surface'])),
+    bedrooms: toNumber(getField(rawUnit, ['Número de recámaras.', 'Numero de recamaras.', 'Número de recámaras', 'Numero de recamaras', 'Cuartos', 'cuartos', 'recamaras', 'recámaras', 'Recámaras', 'dormitorios', 'Bedrooms', 'bedrooms'])),
+    bathrooms: toNumber(getField(rawUnit, ['Número de baños.', 'Numero de banos.', 'Número de baños', 'Numero de banos', 'Banos', 'baños', 'banos', 'Baños', 'Bathrooms', 'bathrooms'])),
+    image: heroImageUrl,
     status: toString(getField(rawUnit, ['Estatus', 'Status', 'Estado', 'status'])),
     estimatedDeliveryDate: toString(
       getField(rawUnit, ['Fecha de entrega', 'Fecha de Entrega', 'Entrega Estimada', 'Estimated Delivery Date', 'Entrega']),
@@ -196,12 +236,18 @@ export function adaptBubbleProperty(
     generalProgress: toNumber(getField(rawUnit, ['Avance General', 'Avance Obra General', 'Progreso General', 'General Progress', 'Progreso'])),
     totalPrice,
     totalPaid,
-    heroImageUrl: heroImage || projectImage,
+    heroImageUrl,
     projectId: toString(getField(rawUnit, ['project', 'Project', 'Proyecto', 'Proyecto ID', 'Project ID'])),
     desarrolladoraId: toString(getField(rawUnit, ['desarrolladora', 'Desarrolladora', 'desarrolladora_id', 'Desarrolladora ID', 'Desarrolladora Id'])),
     saleIds,
     tipo: toString(getField(rawUnit, ['Tipo', 'tipo', 'Tipo de Unidad'])),
     location: projectLocation,
+    projectName,
+    images,
+    parking: toNumber(getField(rawUnit, ['Cajones de estacionamiento.', 'Cajones de estacionamiento', 'Cajón de estacionamiento', 'Cajones', 'Estacionamientos', 'estacionamiento', 'parking', 'Parking'])),
+    floor: toNumber(getField(rawUnit, ['Piso / Nivel.', 'Piso / Nivel', 'Piso', 'Nivel', 'floor', 'Floor'])),
+    notes: toString(getField(rawUnit, ['Notas / descripción corta', 'Notas / descripcion corta', 'Notas', 'notes', 'Notas / descripción'])),
+    constructionArea: toNumber(getField(rawUnit, ['Área total de construcción. m²', 'Área total de construcción m²', 'Área de construcción', 'constructionArea', 'Área construida'])),
   };
 }
 
@@ -228,7 +274,12 @@ export function adaptBubbleInstallments(rawList: Raw[]): Payment[] {
     .map((raw, index) => {
       const amount = toNumber(getField(raw, ['Monto programado', 'Cantidad', 'Monto', 'amount', 'Amount', 'Cantidad Total']));
       const paid = toNumber(getField(raw, ['Monto pagado', 'Monto Pagado', 'Ya Pagado', 'Pagado', 'Paid Amount', 'Abonado', 'paid_amount']));
-      const pending = toNumber(getField(raw, ['restante', 'Restante', 'Falta por Pagar', 'Pendiente', 'Pending Amount']));
+      const pendingRaw = getField(raw, ['restante', 'Restante', 'Falta por Pagar', 'Pendiente', 'Pending Amount']);
+      const hasPending = pendingRaw !== undefined && pendingRaw !== null;
+      // `restante` is authoritative (a real 0 = fully paid); only compute
+      // amount - paid when the field is missing.
+      const pendingAmount = hasPending ? toNumber(pendingRaw) : Math.max(amount - paid, 0);
+      const paidAmount = paid || Math.max(amount - pendingAmount, 0);
       return {
         _id: toString(getField(raw, ['_id', 'id']), `installment-${index}`),
         unitId: toString(getField(raw, ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'project', 'Project'])),
@@ -236,8 +287,8 @@ export function adaptBubbleInstallments(rawList: Raw[]): Payment[] {
         interest: toNumber(getField(raw, ['interes_restante', 'Interes Restante', 'Intereses', 'Interest'])),
         status: toPaymentStatus(getField(raw, ['Estatus', 'Status', 'status'])),
         dueDate: toString(getField(raw, ['Fecha programada', 'due_date', 'Fecha Límite', 'Fecha Limite', 'Due Date', 'Fecha'])),
-        paidAmount: paid || (pending > 0 ? Math.min(amount, Math.max(amount - pending, 0)) : 0),
-        pendingAmount: pending || Math.max(amount - paid, 0),
+        paidAmount,
+        pendingAmount,
       };
     });
 }
@@ -260,7 +311,7 @@ export function adaptBubbleProgress(rawList: Raw[]): {
 } {
   const history: AdaptedProgressUpdate[] = rawList
     .map((raw, index) => {
-      const overall = toNumber(getField(raw, ['Avance Obra General', 'Avance General', 'Progreso General', 'Progreso', 'Overall Progress', 'general_progress']));
+      const overall = toNumber(getField(raw, ['Avance Obra General%', 'Avance General%', 'Avance Obra General', 'Avance General', 'Progreso General', 'Progreso', 'Overall Progress', 'general_progress']));
       const dateRaw = toString(getField(raw, ['fecha', 'Fecha', 'Fecha de Actualización', 'Fecha de Actualizacion', 'Date', 'Last Update', 'timestamp']));
       const parts = SPECIALTY_FIELDS.map((specialty, partIndex) => ({
         id: `${index}-${partIndex}`,
@@ -273,16 +324,17 @@ export function adaptBubbleProgress(rawList: Raw[]): {
         title: toString(getField(raw, ['Título', 'Titulo', 'Title', 'description']), `Avance ${index + 1}`),
         date: formatLongDate(dateRaw),
         dateShort: formatShortDate(dateRaw),
+        dateCard: formatCardDate(dateRaw),
         sortDate: parseDate(dateRaw)?.getTime() ?? 0,
         overall,
         parts,
         photos,
       };
     })
-    .sort((a, b) => a.sortDate - b.sortDate)
+    .sort((a, b) => b.sortDate - a.sortDate)
     .map(({ sortDate: _sortDate, ...rest }) => rest);
 
-  const latest = history.length > 0 ? history[history.length - 1] : null;
+  const latest = history.length > 0 ? history[0] : null;
   const specialties: Progress[] = SPECIALTY_FIELDS.map((specialty, index) => ({
     _id: `spec-${index}`,
     unitId: '',
@@ -295,14 +347,23 @@ export function adaptBubbleProgress(rawList: Raw[]): {
   return { specialties, history };
 }
 
+function isVisibleRecord(raw: Raw): boolean {
+  const value = raw['visible'] ?? raw['Visible'] ?? raw['activo'] ?? raw['Activo'];
+  if (value === undefined || value === null) return true;
+  const normalized = String(value).toLowerCase();
+  return normalized === 'yes' || normalized === 'true' || normalized === 'si' || normalized === '1';
+}
+
 export function adaptBubbleDocuments(rawList: Raw[]): Document[] {
-  return rawList.map((raw, index) => ({
-    _id: toString(getField(raw, ['_id', 'id']), `doc-${index}`),
-    title: toString(getField(raw, ['Título', 'Titulo', 'Title', 'Nombre', 'name']), 'Documento'),
-    category: toString(getField(raw, ['Categoría', 'Categoria', 'Category', 'Tipo']), 'General'),
-    fileUrl: formatImageUrl(toString(getField(raw, ['URL', 'Url', 'File URL', 'Archivo', 'Archivo URL', 'file']))) ?? '',
-    createdDate: toString(getField(raw, ['Modified Date', 'Created Date', 'Fecha', 'Fecha de Creación', 'Fecha de Creacion'])),
-  }));
+  return rawList
+    .filter(isVisibleRecord)
+    .map((raw, index) => ({
+      _id: toString(getField(raw, ['_id', 'id']), `doc-${index}`),
+      title: toString(getField(raw, ['Título', 'Titulo', 'Title', 'Nombre', 'name']), 'Documento'),
+      category: toString(getField(raw, ['Categoría', 'Categoria', 'Category', 'Tipo']), 'General'),
+      fileUrl: formatImageUrl(toString(getField(raw, ['URL', 'Url', 'File URL', 'Archivo', 'Archivo URL', 'file']))) ?? '',
+      createdDate: toString(getField(raw, ['Modified Date', 'Created Date', 'Fecha', 'Fecha de Creación', 'Fecha de Creacion'])),
+    }));
 }
 
 export interface NextPayment {
@@ -311,31 +372,43 @@ export interface NextPayment {
   daysRemaining: number;
 }
 
-export function calculateSalePrice(payments: Payment[]): number {
-  return payments.reduce((sum, payment) => sum + (payment.amount ?? 0), 0);
+export function calculateSalePrice(payments: Payment[], fallback = 0): number {
+  // Contract/unit price is authoritative; never add unverified amounts on top.
+  if (fallback > 0) {
+    return Math.round(fallback);
+  }
+  return Math.round(payments.reduce((total, payment) => total + (payment.amount ?? 0), 0));
 }
 
 export function calculateTotalPaid(payments: Payment[]): number {
-  return payments.reduce((sum, payment) => sum + (payment.paidAmount ?? 0), 0);
+  return Math.round(payments.reduce((sum, payment) => sum + (payment.paidAmount ?? 0), 0));
 }
 
-export function calculatePendingBalance(payments: Payment[]): number {
-  const salePrice = calculateSalePrice(payments);
+export function calculatePendingBalance(payments: Payment[], fallback = 0): number {
+  const salePrice = calculateSalePrice(payments, fallback);
   const totalPaid = calculateTotalPaid(payments);
   if (salePrice > 0) {
     return Math.max(salePrice - totalPaid, 0);
   }
-  return payments.reduce((sum, payment) => sum + (payment.pendingAmount ?? 0), 0);
+  return Math.round(payments.reduce((sum, payment) => sum + (payment.pendingAmount ?? 0), 0));
 }
 
 export function calculateOverdueBalance(payments: Payment[]): number {
-  return payments
-    .filter((payment) => payment.status !== 'Pagado' && payment.dueDate && new Date(payment.dueDate) < new Date())
-    .reduce((sum, payment) => sum + (payment.pendingAmount ?? 0), 0);
+  const now = new Date();
+  return Math.round(
+    payments
+      .filter(
+        (payment) =>
+          payment.pendingAmount > 0 &&
+          payment.dueDate &&
+          new Date(payment.dueDate) < now,
+      )
+      .reduce((sum, payment) => sum + (payment.pendingAmount ?? 0), 0),
+  );
 }
 
-export function calculatePaidPercentage(payments: Payment[]): number {
-  const salePrice = calculateSalePrice(payments);
+export function calculatePaidPercentage(payments: Payment[], fallback = 0): number {
+  const salePrice = calculateSalePrice(payments, fallback);
   if (salePrice <= 0) return 0;
   return Math.round((calculateTotalPaid(payments) / salePrice) * 100);
 }
@@ -350,10 +423,26 @@ export function getNextPayment(payments: Payment[]): NextPayment | null {
   const due = new Date(next.dueDate);
   const daysRemaining = Math.max(0, Math.ceil((due.getTime() - now.getTime()) / 86400000));
   return {
-    amount: next.pendingAmount || next.amount,
+    // Scheduled installment amount (Monto programado), not the partial unpaid balance.
+    amount: next.amount,
     dueDate: next.dueDate,
     daysRemaining,
   };
+}
+
+export function formatCurrencyMXN(amount: number): string {
+  return `$${Math.round(amount).toLocaleString('en-US')}`;
+}
+
+export function formatCompactMXN(amount: number): string {
+  const rounded = Math.round(amount);
+  if (rounded >= 1_000_000) {
+    return `$${(rounded / 1_000_000).toLocaleString('en-US', { maximumFractionDigits: 2 })}M`;
+  }
+  if (rounded >= 1_000) {
+    return `$${(rounded / 1_000).toLocaleString('en-US', { maximumFractionDigits: 2 })}K`;
+  }
+  return `$${rounded.toLocaleString('en-US')}`;
 }
 
 export { formatLongDate, formatShortDate, formatPaymentDate };

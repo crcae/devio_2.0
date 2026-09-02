@@ -158,6 +158,7 @@ export const MOCK_PROGRESS_HISTORY: AdaptedProgressUpdate[] = [
     title: 'Primer Avance',
     date: 'Agosto 10, 2026',
     dateShort: '8/10/26',
+    dateCard: 'Ago 10, 26',
     overall: 21,
     parts: [
       { id: 'h1p1', name: 'Cimentación', percentage: 4 },
@@ -176,6 +177,7 @@ export const MOCK_PROGRESS_HISTORY: AdaptedProgressUpdate[] = [
     title: 'Segundo Avance',
     date: 'Septiembre 15, 2026',
     dateShort: '9/15/26',
+    dateCard: 'Sep 15, 26',
     overall: 45,
     parts: [
       { id: 'h2p1', name: 'Cimentación', percentage: 45 },

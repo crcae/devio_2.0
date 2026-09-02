@@ -173,13 +173,15 @@ export default function ProfileScreen() {
       >
         <View style={styles.avatarSection}>
           <View style={styles.avatarWrap}>
-            {avatarUri ? (
-              <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatar}>
-                <Text style={styles.avatarText}>{initialsOf(user?.name)}</Text>
-              </View>
-            )}
+            <View style={styles.avatarRing}>
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+              ) : (
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{initialsOf(user?.name)}</Text>
+                </View>
+              )}
+            </View>
             <Pressable
               style={styles.avatarEdit}
               onPress={handlePickImage}
@@ -257,7 +259,7 @@ export default function ProfileScreen() {
         <Text style={styles.moduleLabel}>General</Text>
         <View style={styles.sectionCard}>
           <Pressable
-            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.linkRow, pressed && styles.rowPressed]}
             onPress={() => openUrl('https://app.deviomx.com/terminos_y_condiciones')}
           >
             <View style={styles.linkIcon}>
@@ -268,7 +270,7 @@ export default function ProfileScreen() {
           </Pressable>
           <View style={styles.linkDivider} />
           <Pressable
-            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.linkRow, pressed && styles.rowPressed]}
             onPress={() => openUrl('https://wa.me/3321772355')}
           >
             <View style={styles.linkIcon}>
@@ -279,7 +281,7 @@ export default function ProfileScreen() {
           </Pressable>
           <View style={styles.linkDivider} />
           <Pressable
-            style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.linkRow, pressed && styles.rowPressed]}
             onPress={handleLogout}
           >
             <View style={[styles.linkIcon, { backgroundColor: '#FDEBEB' }]}>
@@ -366,8 +368,9 @@ const styles = StyleSheet.create({
   },
   topBarTitle: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.2,
   },
   content: {
     padding: SPACING.lg,
@@ -380,21 +383,38 @@ const styles = StyleSheet.create({
   avatarWrap: {
     position: 'relative',
   },
+  avatarRing: {
+    width: 108,
+    height: 108,
+    borderRadius: RADIUS.pill,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+  },
   avatar: {
-    width: 96,
-    height: 96,
+    width: 100,
+    height: 100,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.gold,
   },
   avatarImage: {
-    width: 96,
-    height: 96,
+    width: 100,
+    height: 100,
     borderRadius: RADIUS.pill,
+    borderWidth: 2,
+    borderColor: COLORS.gold,
   },
   avatarText: {
-    fontSize: 34,
+    fontSize: 36,
     fontWeight: '800',
     color: COLORS.gold,
   },
@@ -402,23 +422,31 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     borderRadius: RADIUS.pill,
     backgroundColor: COLORS.primary,
     borderWidth: 3,
     borderColor: COLORS.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 2,
   },
   avatarName: {
     marginTop: SPACING.md,
-    fontSize: 18,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.2,
   },
   avatarEditLink: {
     marginTop: SPACING.xs,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 4,
   },
   avatarEditText: {
     fontSize: 13,
@@ -427,14 +455,16 @@ const styles = StyleSheet.create({
   },
   sectionCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.md,
     marginBottom: SPACING.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   sectionTitle: {
     fontSize: 18,
@@ -483,6 +513,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: COLORS.primary,
     marginTop: SPACING.md,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 4,
   },
   saveButtonText: {
     marginLeft: 8,
@@ -505,16 +540,22 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.textSecondary,
     textTransform: 'uppercase',
+    letterSpacing: 0.8,
     marginBottom: SPACING.sm,
   },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.xs,
+    borderRadius: RADIUS.md,
+  },
+  rowPressed: {
+    backgroundColor: COLORS.background,
   },
   linkIcon: {
-    width: 38,
-    height: 38,
+    width: 40,
+    height: 40,
     borderRadius: RADIUS.md,
     backgroundColor: COLORS.goldLight,
     alignItems: 'center',

@@ -1,3 +1,10 @@
+export interface UserNotification {
+  id: string;
+  title: string;
+  detail?: string;
+  time: string;
+}
+
 export interface User {
   _id: string;
   email: string;
@@ -6,6 +13,7 @@ export interface User {
   token: string;
   assignedProperties?: string[];
   photoUrl?: string;
+  notifications?: UserNotification[];
 }
 
 export type PropertyStatus = 'Disponible' | 'Reservada' | 'Apartada' | 'Vendida' | 'Entregada';

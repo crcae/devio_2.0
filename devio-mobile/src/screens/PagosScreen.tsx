@@ -14,7 +14,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import type { FinancialSummary, Payment, PaymentStatus } from '../types';
-import { calculateOverdueBalance, calculatePaidPercentage, calculatePendingBalance, calculateSalePrice, calculateTotalPaid } from '../services/bubbleAdapter';
+import { calculateOverdueBalance, calculatePaidPercentage, calculateSalePrice, calculateTotalPaid, type AdaptedProperty } from '../services/bubbleAdapter';
 import { MOCK_PAYMENT_CONCEPTS } from '../services/mockData';
 import type { RootStackParamList } from '../navigation/types';
 import AppHeader from '../components/AppHeader';
@@ -40,6 +40,7 @@ interface InstallmentRow {
   paid: number;
   pending: number;
   concept: string;
+  dueDate: string;
 }
 
 interface ExecutedPayment {
@@ -50,7 +51,7 @@ interface ExecutedPayment {
 }
 
 function formatMXN(amount: number): string {
-  return `$${amount.toLocaleString('en-US')}`;
+  return `$${Math.round(amount).toLocaleString('en-US')}`;
 }
 
 function formatShortDate(iso: string): string {
@@ -85,18 +86,19 @@ export default function PagosScreen({ navigation }: Props) {
       }
       return { totalPrice: 6000000, totalPaid: 300000, pendingBalance: 5700000, overdueBalance: 900000, paidPercentage: 5 };
     }
-    const totalPrice = calculateSalePrice(payments);
+    const unitPrice = (selectedProperty as AdaptedProperty | null)?.totalPrice ?? 0;
+    const totalPrice = calculateSalePrice(payments, unitPrice);
     const totalPaid = calculateTotalPaid(payments);
-    const pendingBalance = calculatePendingBalance(payments);
+    const pendingBalance = Math.max(totalPrice - totalPaid, 0);
     const overdueBalance = calculateOverdueBalance(payments);
     return {
       totalPrice,
       totalPaid,
       pendingBalance,
       overdueBalance,
-      paidPercentage: calculatePaidPercentage(payments),
+      paidPercentage: calculatePaidPercentage(payments, unitPrice),
     };
-  }, [payments, isDemoMode]);
+  }, [payments, isDemoMode, selectedProperty]);
 
   const installments: InstallmentRow[] = useMemo(() => {
     if (payments.length === 0) {
@@ -104,21 +106,27 @@ export default function PagosScreen({ navigation }: Props) {
         return [];
       }
       return [
-        { id: 'mock-i1', unit: '1A', amount: 1200000, interest: 0, status: 'Parcial', paid: 300000, pending: 900000, concept: 'Enganche' },
-        { id: 'mock-i2', unit: '1A', amount: 1200000, interest: 0, status: 'Pendiente', paid: 0, pending: 1200000, concept: 'Pago 2' },
-        { id: 'mock-i3', unit: '1A', amount: 1200000, interest: 0, status: 'Pagado', paid: 1200000, pending: 0, concept: 'Pago 1' },
+        { id: 'mock-i1', unit: '1A', amount: 1200000, interest: 0, status: 'Parcial', paid: 300000, pending: 900000, concept: 'Enganche', dueDate: '2026-09-02T00:00:00.000Z' },
+        { id: 'mock-i2', unit: '1A', amount: 1200000, interest: 0, status: 'Pendiente', paid: 0, pending: 1200000, concept: 'Pago 2', dueDate: '2026-10-02T00:00:00.000Z' },
+        { id: 'mock-i3', unit: '1A', amount: 1200000, interest: 0, status: 'Pagado', paid: 1200000, pending: 0, concept: 'Pago 1', dueDate: '2026-11-01T00:00:00.000Z' },
       ];
     }
-    return payments.map((payment) => ({
-      id: payment._id,
-      unit: unitPrefix,
-      amount: payment.amount,
-      interest: payment.interest,
-      status: payment.status,
-      paid: payment.paidAmount,
-      pending: payment.pendingAmount,
-      concept: MOCK_PAYMENT_CONCEPTS[payment._id] ?? 'Pago',
-    }));
+    return payments
+      .map((payment) => ({
+        id: payment._id,
+        unit: unitPrefix,
+        amount: payment.amount,
+        interest: payment.interest,
+        status: payment.status,
+        paid: payment.paidAmount,
+        pending: payment.pendingAmount,
+        concept: MOCK_PAYMENT_CONCEPTS[payment._id] ?? 'Pago',
+        dueDate: payment.dueDate,
+      }))
+      .sort(
+        (a, b) =>
+          new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime(),
+      );
   }, [payments, unitPrefix, isDemoMode]);
 
   const executedPayments: ExecutedPayment[] = useMemo(() => {
@@ -269,28 +277,36 @@ export default function PagosScreen({ navigation }: Props) {
 
         <View style={styles.metricsGrid}>
           <View style={styles.metric}>
-            <Text style={[styles.metricValue, { color: COLORS.success }]}>
-              {formatMXN(summary.totalPaid)}
-            </Text>
-            <Text style={styles.metricLabel}>Total Pagado</Text>
+            <View style={styles.metricCard}>
+              <Text style={[styles.metricValue, { color: COLORS.success }]}>
+                {formatMXN(summary.totalPaid)}
+              </Text>
+              <Text style={styles.metricLabel}>Total Pagado</Text>
+            </View>
           </View>
           <View style={styles.metric}>
-            <Text style={[styles.metricValue, { color: COLORS.danger }]}>
-              {formatMXN(summary.overdueBalance)}
-            </Text>
-            <Text style={styles.metricLabel}>Saldo Vencido</Text>
+            <View style={styles.metricCard}>
+              <Text style={[styles.metricValue, { color: COLORS.danger }]}>
+                {formatMXN(summary.overdueBalance)}
+              </Text>
+              <Text style={styles.metricLabel}>Saldo Vencido</Text>
+            </View>
           </View>
           <View style={styles.metric}>
-            <Text style={[styles.metricValue, { color: COLORS.textPrimary }]}>
-              {formatMXN(summary.pendingBalance)}
-            </Text>
-            <Text style={styles.metricLabel}>Saldo Pendiente</Text>
+            <View style={styles.metricCard}>
+              <Text style={[styles.metricValue, { color: COLORS.textPrimary }]}>
+                {formatMXN(summary.pendingBalance)}
+              </Text>
+              <Text style={styles.metricLabel}>Saldo Pendiente</Text>
+            </View>
           </View>
           <View style={styles.metric}>
-            <Text style={[styles.metricValue, { color: COLORS.textPrimary }]}>
-              {summary.paidPercentage}%
-            </Text>
-            <Text style={styles.metricLabel}>% Pagado</Text>
+            <View style={styles.metricCard}>
+              <Text style={[styles.metricValue, { color: COLORS.textPrimary }]}>
+                {summary.paidPercentage}%
+              </Text>
+              <Text style={styles.metricLabel}>% Pagado</Text>
+            </View>
           </View>
         </View>
       </View>
@@ -499,19 +515,22 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.md,
     marginBottom: SPACING.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 2,
   },
   summaryTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.1,
     marginBottom: SPACING.md,
   },
   metricsGrid: {
@@ -520,16 +539,25 @@ const styles = StyleSheet.create({
   },
   metric: {
     width: '50%',
-    paddingVertical: SPACING.sm,
+    padding: SPACING.xs,
+  },
+  metricCard: {
+    backgroundColor: COLORS.background,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.8)',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
   },
   metricValue: {
     fontSize: 19,
     fontWeight: '800',
+    letterSpacing: 0.2,
   },
   metricLabel: {
     fontSize: 12,
     color: COLORS.textSecondary,
-    marginTop: 2,
+    marginTop: 3,
   },
   downloadButton: {
     flexDirection: 'row',
@@ -548,12 +576,15 @@ const styles = StyleSheet.create({
   },
   segmented: {
     flexDirection: 'row',
-    backgroundColor: COLORS.surface,
+    backgroundColor: '#E8EDF3',
     borderRadius: RADIUS.pill,
     padding: 4,
     marginBottom: SPACING.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
   },
   segment: {
     flex: 1,
@@ -563,38 +594,47 @@ const styles = StyleSheet.create({
   },
   segmentActive: {
     backgroundColor: COLORS.primary,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 4,
+    elevation: 2,
   },
   segmentText: {
     fontSize: 14,
     fontWeight: '700',
-    color: COLORS.textPrimary,
+    color: COLORS.textSecondary,
   },
   segmentTextActive: {
     color: COLORS.surface,
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: COLORS.surface,
+    backgroundColor: '#E8EDF3',
     borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.sm,
     marginBottom: 2,
   },
   tableHeaderText: {
     fontWeight: '700',
+    color: COLORS.textSecondary,
   },
   tableRow: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.8)',
     paddingVertical: SPACING.md,
     paddingHorizontal: SPACING.sm,
     marginBottom: SPACING.sm,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   rowPressed: {
     opacity: 0.85,
@@ -606,6 +646,7 @@ const styles = StyleSheet.create({
   },
   cellUnit: {
     flex: 1,
+    fontWeight: '700',
   },
   cellAmount: {
     flex: 1.4,
@@ -622,7 +663,7 @@ const styles = StyleSheet.create({
   },
   statusBadge: {
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: RADIUS.pill,
     marginRight: 6,
   },
@@ -633,11 +674,16 @@ const styles = StyleSheet.create({
   breakdown: {
     backgroundColor: COLORS.surface,
     borderRadius: RADIUS.md,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.8)',
     padding: SPACING.md,
     marginBottom: SPACING.md,
     marginTop: -SPACING.sm + 2,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 6,
+    elevation: 1,
   },
   breakdownCards: {
     flexDirection: 'row',
@@ -646,7 +692,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
     borderRadius: 12,
-    padding: SPACING.sm,
+    paddingVertical: SPACING.sm,
+    paddingHorizontal: 4,
     alignItems: 'center',
     marginHorizontal: 2,
   },
@@ -668,9 +715,9 @@ const styles = StyleSheet.create({
   },
   breakdownTrack: {
     flex: 1,
-    height: 8,
+    height: 9,
     borderRadius: RADIUS.pill,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#E8EDF3',
     overflow: 'hidden',
   },
   breakdownFill: {
@@ -681,14 +728,19 @@ const styles = StyleSheet.create({
   breakdownPercent: {
     marginLeft: SPACING.sm,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.gold,
   },
   receiptButton: {
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.md,
-    paddingVertical: 6,
+    paddingVertical: 7,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.16,
+    shadowRadius: 3,
+    elevation: 2,
   },
   receiptButtonText: {
     color: COLORS.surface,

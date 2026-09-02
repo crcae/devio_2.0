@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Image,
   Linking,
   Pressable,
   ScrollView,
@@ -14,9 +15,12 @@ import {
   BedDouble,
   Building2,
   Calendar,
+  Car,
   ChevronDown,
   ChevronUp,
   FolderOpen,
+  Hash,
+  Layers,
   Receipt,
   Ruler,
   Store,
@@ -26,7 +30,7 @@ import { COLORS, RADIUS, SPACING } from '../constants/theme';
 import { useApp } from '../context/AppContext';
 import {
   calculateOverdueBalance,
-  calculatePendingBalance,
+  calculateSalePrice,
   calculateTotalPaid,
   getNextPayment,
   type AdaptedProperty,
@@ -42,25 +46,19 @@ const HERO_TONES = [
   { id: 'hero-3', tone: '#314F6E' },
 ];
 
-const THUMBNAILS = [
-  { id: 'thumb-1', tone: COLORS.primary },
-  { id: 'thumb-2', tone: '#3A5A7C' },
-  { id: 'thumb-3', tone: '#274565' },
-  { id: 'thumb-4', tone: '#314F6E' },
-];
-
 function formatCompact(amount: number): string {
-  if (amount >= 1_000_000) {
-    return `$${(amount / 1_000_000).toFixed(2)}M`;
+  const rounded = Math.round(amount);
+  if (rounded >= 1_000_000) {
+    return `$${(rounded / 1_000_000).toFixed(2)}M`;
   }
-  if (amount >= 1_000) {
-    return `$${(amount / 1_000).toFixed(2)}K`;
+  if (rounded >= 1_000) {
+    return `$${(rounded / 1_000).toFixed(2)}K`;
   }
-  return `$${amount.toFixed(0)}`;
+  return `$${rounded.toFixed(0)}`;
 }
 
 function formatMXN(amount: number): string {
-  return `$${amount.toLocaleString('en-US')}`;
+  return `$${Math.round(amount).toLocaleString('en-US')}`;
 }
 
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -72,11 +70,26 @@ function formatNextDue(iso: string): string {
 }
 
 export default function PropertyDetailScreen({ navigation }: Props) {
-  const { selectedProperty, payments, isDemoMode } = useApp();
+  const { selectedProperty, payments, progressHistory, isDemoMode, loadProgress, loadPayments } = useApp();
   const [unitInfoExpanded, setUnitInfoExpanded] = useState(true);
   const [activeThumb, setActiveThumb] = useState(0);
 
   const unitName = selectedProperty?.name ?? 'Solea Residencial | 1A';
+  const unitId = selectedProperty?._id ?? '';
+
+  useEffect(() => {
+    if (unitId) {
+      loadProgress(unitId);
+      loadPayments(unitId);
+    }
+  }, [unitId, loadProgress, loadPayments]);
+
+  const galleryImages = useMemo(() => {
+    const images = (selectedProperty as AdaptedProperty | null)?.images ?? [];
+    return images.length > 0
+      ? images.map((url, index) => ({ id: `img-${index}`, url }))
+      : HERO_TONES;
+  }, [selectedProperty]);
 
   const nextPaymentInfo = useMemo(() => getNextPayment(payments), [payments]);
   const nextPayment = nextPaymentInfo?.amount ?? (isDemoMode ? 200000 : 0);
@@ -92,18 +105,24 @@ export default function PropertyDetailScreen({ navigation }: Props) {
       }
       return { salePrice: 6000000, totalPaid: 300000, pendingBalance: 5700000 };
     }
-    const price = payments.reduce((sum, p) => sum + p.amount, 0);
-    return { salePrice: price, totalPaid: calculateTotalPaid(payments), pendingBalance: calculatePendingBalance(payments) };
-  }, [payments, isDemoMode]);
+    // Precio de Venta: sum of Monto programado, falling back to the unit price.
+    const unitPrice = (selectedProperty as AdaptedProperty | null)?.totalPrice ?? 0;
+    const price = calculateSalePrice(payments, unitPrice);
+    const paid = calculateTotalPaid(payments);
+    return {
+      salePrice: price,
+      totalPaid: paid,
+      pendingBalance: Math.max(price - paid, 0),
+    };
+  }, [payments, isDemoMode, selectedProperty]);
 
-  const progress = selectedProperty?.generalProgress ?? 0;
-  const lastUpdate = 'N/A';
+  const progress = useMemo(() => {
+    const latest = progressHistory[0];
+    return latest?.overall ?? selectedProperty?.generalProgress ?? 0;
+  }, [progressHistory, selectedProperty?.generalProgress]);
+  const lastUpdate = progressHistory.length > 0 ? progressHistory[0].dateShort : 'N/A';
 
-  const unitSpecs = [
-    { icon: Ruler, label: 'Superficie', value: `${selectedProperty?.surfaceM2 ?? 76} m²` },
-    { icon: BedDouble, label: 'Cuartos', value: `${selectedProperty?.bedrooms ?? 1}` },
-    { icon: Bath, label: 'Baños', value: `${selectedProperty?.bathrooms ?? 1}` },
-  ];
+  const adaptedProperty = selectedProperty as AdaptedProperty | null;
 
   const openMarketplace = async () => {
     const desarrolladoraId = (selectedProperty as AdaptedProperty | null)?.desarrolladoraId;
@@ -149,13 +168,33 @@ export default function PropertyDetailScreen({ navigation }: Props) {
         <View style={styles.gallery}>
           <View style={styles.heroWrap}>
             <View style={styles.heroImage}>
-              <Building2 size={56} color={COLORS.gold} strokeWidth={1.2} />
+              {'url' in galleryImages[activeThumb] ? (
+                <Image
+                  key={galleryImages[activeThumb].id}
+                  source={{ uri: galleryImages[activeThumb].url }}
+                  style={styles.heroImageBg}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Building2 size={56} color={COLORS.gold} strokeWidth={1.2} />
+              )}
             </View>
-            <View style={styles.nameCapsule}>
-              <Text style={styles.nameCapsuleText} numberOfLines={1}>
-                {unitName}
+            <View style={styles.heroCounter}>
+              <Text style={styles.heroCounterText}>
+                {activeThumb + 1}/{galleryImages.length}
               </Text>
             </View>
+          </View>
+
+          <View style={styles.galleryTitleRow}>
+            <Text style={styles.galleryTitle} numberOfLines={1}>
+              {adaptedProperty?.projectName || unitName}
+            </Text>
+            {adaptedProperty?.unitCode ? (
+              <View style={styles.galleryUnitBadge}>
+                <Text style={styles.galleryUnitBadgeText}>Unidad {adaptedProperty.unitCode}</Text>
+              </View>
+            ) : null}
           </View>
 
           <ScrollView
@@ -163,18 +202,23 @@ export default function PropertyDetailScreen({ navigation }: Props) {
             showsHorizontalScrollIndicator={false}
             style={styles.thumbnails}
           >
-            {THUMBNAILS.map((thumb, index) => (
+            {galleryImages.map((tile, index) => (
               <Pressable
-                key={thumb.id}
+                key={tile.id}
                 style={({ pressed }) => [
                   styles.thumbnail,
-                  { backgroundColor: thumb.tone },
                   index === activeThumb && styles.thumbnailActive,
                   pressed && styles.pressed,
                 ]}
                 onPress={() => setActiveThumb(index)}
               >
-                <Building2 size={18} color={COLORS.surface} strokeWidth={1.4} />
+                {'url' in tile ? (
+                  <Image source={{ uri: tile.url }} style={styles.thumbnailImage} resizeMode="cover" />
+                ) : (
+                  <View style={[styles.thumbnailTone, { backgroundColor: tile.tone }]}>
+                    <Building2 size={18} color={COLORS.surface} strokeWidth={1.4} />
+                  </View>
+                )}
               </Pressable>
             ))}
           </ScrollView>
@@ -261,10 +305,12 @@ export default function PropertyDetailScreen({ navigation }: Props) {
           {quickActions.map((action) => (
             <Pressable
               key={action.key}
-              style={({ pressed }) => [styles.quickCard, pressed && styles.pressed]}
+              style={({ pressed }) => [styles.quickCard, pressed && styles.quickCardPressed]}
               onPress={action.onPress}
             >
-              <action.icon size={22} color={COLORS.primary} strokeWidth={1.8} />
+              <View style={styles.quickIcon}>
+                <action.icon size={20} color={COLORS.primary} strokeWidth={2} />
+              </View>
               <Text style={styles.quickLabel}>{action.label}</Text>
             </Pressable>
           ))}
@@ -284,14 +330,61 @@ export default function PropertyDetailScreen({ navigation }: Props) {
           </Pressable>
 
           {unitInfoExpanded ? (
-            <View style={styles.unitPills}>
-              {unitSpecs.map((spec) => (
-                <View key={spec.label} style={styles.unitPill}>
-                  <spec.icon size={16} color={COLORS.gold} strokeWidth={2} />
-                  <Text style={styles.unitPillLabel}>{spec.label}</Text>
-                  <Text style={styles.unitPillValue}>{spec.value}</Text>
+            <View style={styles.unitGrid}>
+              <View style={styles.unitRow}>
+                <View style={styles.unitGridCard}>
+                  <View style={styles.unitGridIcon}><Ruler size={18} color={COLORS.gold} strokeWidth={2} /></View>
+                  <Text style={styles.unitGridValue}>{selectedProperty?.surfaceM2 ?? 0} m²</Text>
+                  <Text style={styles.unitGridLabel}>Superficie</Text>
                 </View>
-              ))}
+                <View style={styles.unitGridCard}>
+                  <View style={styles.unitGridIcon}><BedDouble size={18} color={COLORS.gold} strokeWidth={2} /></View>
+                  <Text style={styles.unitGridValue}>{selectedProperty?.bedrooms ?? 0}</Text>
+                  <Text style={styles.unitGridLabel}>Cuartos</Text>
+                </View>
+                <View style={styles.unitGridCard}>
+                  <View style={styles.unitGridIcon}><Bath size={18} color={COLORS.gold} strokeWidth={2} /></View>
+                  <Text style={styles.unitGridValue}>{selectedProperty?.bathrooms ?? 0}</Text>
+                  <Text style={styles.unitGridLabel}>Baños</Text>
+                </View>
+              </View>
+
+              <View style={styles.unitRow}>
+                <View style={styles.unitGridCardWide}>
+                  <View style={styles.unitGridIcon}><Ruler size={18} color={COLORS.gold} strokeWidth={2} /></View>
+                  <Text style={styles.unitGridValue}>
+                    {adaptedProperty?.constructionArea != null && adaptedProperty.constructionArea > 0
+                      ? `${adaptedProperty.constructionArea} m²`
+                      : '—'}
+                  </Text>
+                  <Text style={styles.unitGridLabel}>Área de Construcción</Text>
+                </View>
+                <View style={styles.unitGridCardWide}>
+                  <View style={styles.unitGridIcon}><Hash size={18} color={COLORS.gold} strokeWidth={2} /></View>
+                  <Text style={styles.unitGridValue}>{selectedProperty?.unitCode ? `# ${selectedProperty.unitCode}` : '—'}</Text>
+                  <Text style={styles.unitGridLabel}>Número de Unidad</Text>
+                </View>
+              </View>
+
+              <View style={styles.unitRow}>
+                <View style={styles.unitGridCardWide}>
+                  <View style={styles.unitGridIcon}><Car size={18} color={COLORS.gold} strokeWidth={2} /></View>
+                  <Text style={styles.unitGridValue}>{adaptedProperty?.parking ?? 0}</Text>
+                  <Text style={styles.unitGridLabel}>Cajones de Estacionamiento</Text>
+                </View>
+                <View style={styles.unitGridCardWide}>
+                  <View style={styles.unitGridIcon}><Layers size={18} color={COLORS.gold} strokeWidth={2} /></View>
+                  <Text style={styles.unitGridValue}>{adaptedProperty?.floor ?? '—'}</Text>
+                  <Text style={styles.unitGridLabel}>Piso / Nivel</Text>
+                </View>
+              </View>
+
+              {adaptedProperty?.notes ? (
+                <View style={[styles.unitGridCardWide, styles.unitNotesCard]}>
+                  <Text style={styles.unitGridLabel}>Notas</Text>
+                  <Text style={styles.unitNotesText}>{adaptedProperty.notes}</Text>
+                </View>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -314,15 +407,39 @@ const styles = StyleSheet.create({
   },
   heroWrap: {
     position: 'relative',
-    borderRadius: 16,
+    borderRadius: 20,
     overflow: 'hidden',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
+    elevation: 6,
   },
   heroImage: {
-    height: 220,
-    borderRadius: 16,
+    height: 232,
+    borderRadius: 20,
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  heroImageBg: {
+    width: '100%',
+    height: '100%',
+  },
+  heroCounter: {
+    position: 'absolute',
+    right: SPACING.md,
+    bottom: SPACING.md,
+    backgroundColor: 'rgba(15,23,42,0.7)',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+  },
+  heroCounterText: {
+    color: COLORS.surface,
+    fontSize: 12,
+    fontWeight: '700',
   },
   nameCapsule: {
     position: 'absolute',
@@ -344,35 +461,82 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
+  galleryTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: SPACING.md,
+    marginBottom: SPACING.sm,
+  },
+  galleryTitle: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    letterSpacing: 0.2,
+  },
+  galleryUnitBadge: {
+    borderRadius: RADIUS.pill,
+    borderWidth: 1.5,
+    borderColor: COLORS.gold,
+    backgroundColor: COLORS.goldLight,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 4,
+    marginLeft: SPACING.sm,
+  },
+  galleryUnitBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: COLORS.gold,
+  },
   thumbnails: {
     marginTop: SPACING.sm,
   },
   thumbnail: {
-    width: 68,
-    height: 52,
+    width: 70,
+    height: 54,
     borderRadius: RADIUS.md,
     marginRight: SPACING.sm,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: 'transparent',
+    overflow: 'hidden',
+  },
+  thumbnailImage: {
+    width: '100%',
+    height: '100%',
+  },
+  thumbnailTone: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   thumbnailActive: {
     borderColor: COLORS.gold,
+    transform: [{ scale: 1.04 }],
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 3,
   },
   pressed: {
     opacity: 0.85,
   },
   paymentCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.md,
     marginBottom: SPACING.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 2,
   },
   paymentBadges: {
     flexDirection: 'row',
@@ -385,7 +549,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#EDDACB',
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 5,
+    paddingVertical: 6,
   },
   badgeGoldText: {
     marginLeft: 5,
@@ -399,7 +563,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 5,
+    paddingVertical: 6,
   },
   badgeRedText: {
     marginLeft: 5,
@@ -416,15 +580,17 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   paymentAmountGold: {
-    fontSize: 22,
+    fontSize: 23,
     fontWeight: '800',
     color: COLORS.gold,
+    letterSpacing: 0.3,
   },
   paymentAmountRed: {
-    fontSize: 22,
+    fontSize: 23,
     fontWeight: '800',
     color: COLORS.danger,
     textAlign: 'right',
+    letterSpacing: 0.3,
   },
   paymentSubtitle: {
     fontSize: 13,
@@ -437,6 +603,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   primaryButtonText: {
     color: COLORS.surface,
@@ -445,14 +616,16 @@ const styles = StyleSheet.create({
   },
   progressCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.md,
     marginBottom: SPACING.lg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 2,
   },
   progressHeader: {
     flexDirection: 'row',
@@ -462,18 +635,20 @@ const styles = StyleSheet.create({
   },
   moduleTitle: {
     fontSize: 18,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.1,
   },
   progressPercent: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: '800',
     color: COLORS.gold,
+    letterSpacing: 0.3,
   },
   progressTrack: {
-    height: 8,
+    height: 9,
     borderRadius: RADIUS.pill,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#E8EDF3',
     overflow: 'hidden',
   },
   progressFill: {
@@ -508,7 +683,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.md,
-    paddingVertical: 8,
+    paddingVertical: 9,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.16,
+    shadowRadius: 4,
+    elevation: 2,
   },
   linkButtonText: {
     color: COLORS.surface,
@@ -528,6 +708,8 @@ const styles = StyleSheet.create({
   },
   financialSale: {
     backgroundColor: '#E2E8F0',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.9)',
   },
   financialWhite: {
     backgroundColor: COLORS.surface,
@@ -543,6 +725,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: COLORS.textSecondary,
     marginTop: 4,
+    letterSpacing: 0.1,
   },
   quickRow: {
     flexDirection: 'row',
@@ -552,9 +735,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#F1F5F9',
     borderRadius: 16,
-    padding: SPACING.md,
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
     marginHorizontal: 3,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(203,213,225,0.6)',
+  },
+  quickIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  quickCardPressed: {
+    backgroundColor: '#E2E8F0',
+    transform: [{ scale: 0.98 }],
   },
   quickLabel: {
     marginTop: SPACING.sm,
@@ -562,43 +765,85 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.textPrimary,
     textAlign: 'center',
+    letterSpacing: 0.1,
   },
   unitCard: {
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   unitHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  unitPills: {
-    flexDirection: 'row',
+  unitGrid: {
     marginTop: SPACING.md,
   },
-  unitPill: {
+  unitRow: {
+    flexDirection: 'row',
+    marginBottom: SPACING.sm,
+  },
+  unitGridCard: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: '#F0F2F5',
     borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.8)',
     paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
     alignItems: 'center',
     marginHorizontal: 3,
   },
-  unitPillLabel: {
+  unitGridCardWide: {
+    flex: 1,
+    backgroundColor: '#F0F2F5',
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.8)',
+    paddingVertical: SPACING.md,
+    paddingHorizontal: SPACING.sm,
+    alignItems: 'center',
+    marginHorizontal: 3,
+  },
+  unitGridIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: COLORS.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  unitGridValue: {
     marginTop: 6,
+    fontSize: 16,
+    fontWeight: '800',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+  },
+  unitGridLabel: {
+    marginTop: 2,
     fontSize: 11,
     color: COLORS.textSecondary,
+    textAlign: 'center',
+    letterSpacing: 0.2,
   },
-  unitPillValue: {
-    marginTop: 2,
-    fontSize: 14,
-    fontWeight: '700',
+  unitNotesCard: {
+    marginHorizontal: 3,
+    alignItems: 'flex-start',
+  },
+  unitNotesText: {
+    marginTop: 4,
+    fontSize: 13,
     color: COLORS.textPrimary,
+    lineHeight: 19,
+    textAlign: 'left',
   },
 });

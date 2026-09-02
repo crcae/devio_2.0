@@ -26,19 +26,23 @@ type DocumentItem = Document & { size?: string };
 
 function formatDateTime(iso: string): string {
   if (!iso) return '';
-  const date = new Date(`${iso}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return iso;
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  let hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const meridiem = hours >= 12 ? 'pm' : 'am';
-  hours = hours % 12 || 12;
-  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()} ${hours}:${minutes} ${meridiem}`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    const fallback = new Date(`${iso}T00:00:00`);
+    if (!Number.isNaN(fallback.getTime())) {
+      const esMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+      return `${fallback.getDate()} ${esMonths[fallback.getMonth()]} ${fallback.getFullYear()}`;
+    }
+    return iso;
+  }
+  const esMonths = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  return `${date.getDate()} ${esMonths[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 export default function DocumentsScreen({ navigation }: Props) {
   const { selectedProperty, documents, loadDocuments, dataLoading } = useApp();
   const [query, setQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activeDoc, setActiveDoc] = useState<DocumentItem | null>(null);
 
@@ -105,16 +109,27 @@ export default function DocumentsScreen({ navigation }: Props) {
       </SafeAreaView>
 
       <View style={styles.searchArea}>
-        <View style={styles.searchBox}>
-          <Search size={18} color="#94A3B8" strokeWidth={2} />
+        <View style={[styles.searchBox, searchFocused && styles.searchBoxFocused]}>
+          <Search size={18} color={searchFocused ? COLORS.gold : '#94A3B8'} strokeWidth={2} />
           <TextInput
             style={styles.searchInput}
             placeholder="Buscar Documentos"
             placeholderTextColor={COLORS.textSecondary}
             value={query}
             onChangeText={setQuery}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
             autoCorrect={false}
           />
+          {query.length > 0 ? (
+            <Pressable
+              style={styles.searchClear}
+              onPress={() => setQuery('')}
+              accessibilityLabel="Limpiar búsqueda"
+            >
+              <X size={16} color={COLORS.textSecondary} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -151,8 +166,12 @@ export default function DocumentsScreen({ navigation }: Props) {
           ListEmptyComponent={
             <EmptyState
               icon={FileText}
-              title="No se encontraron documentos"
-              description="Intenta con otro término de búsqueda"
+              title={documents.length === 0 ? 'Aún no tienes ningún documento.' : 'No se encontraron documentos'}
+              description={
+                documents.length === 0
+                  ? 'Cuando se generen documentos para tu propiedad, aparecerán aquí.'
+                  : 'Intenta con otro término de búsqueda'
+              }
             />
           }
         />
@@ -256,17 +275,33 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingHorizontal: SPACING.md,
     height: 52,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  searchBoxFocused: {
+    borderColor: COLORS.gold,
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
   },
   searchInput: {
     flex: 1,
     marginLeft: SPACING.sm,
     fontSize: 15,
     color: COLORS.textPrimary,
+  },
+  searchClear: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: COLORS.background,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.sm,
   },
   list: {
     paddingHorizontal: SPACING.lg,
@@ -285,22 +320,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.surface,
-    borderRadius: 16,
+    borderRadius: 18,
     padding: SPACING.md,
     marginBottom: SPACING.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.7)',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   iconChip: {
-    width: 48,
-    height: 48,
-    borderRadius: RADIUS.md,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
     backgroundColor: '#F1F5F9',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.9)',
   },
   docInfo: {
     flex: 1,
@@ -308,8 +347,9 @@ const styles = StyleSheet.create({
   },
   docTitle: {
     fontSize: 16,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.textPrimary,
+    letterSpacing: 0.1,
   },
   docDate: {
     fontSize: 13,
@@ -318,9 +358,14 @@ const styles = StyleSheet.create({
   },
   docSize: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: COLORS.gold,
     marginLeft: SPACING.sm,
+    backgroundColor: COLORS.goldLight,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+    overflow: 'hidden',
   },
   modalBackdrop: {
     flex: 1,

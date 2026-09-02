@@ -1,4 +1,4 @@
-import type { User } from '../types';
+import type { User, UserNotification } from '../types';
 import { formatImageUrl, matchUnitsToUser, recordReferencesUser } from './bubbleAdapter';
 
 const TEST_BASE_URL = 'https://app.deviomx.com/version-test/api/1.1';
@@ -199,21 +199,40 @@ async function fetchAllPages(candidates: string[], baseUrl: string = activeBaseU
   throw lastError ?? new BubbleApiError('No API endpoints available');
 }
 
+async function fetchAllVariants(candidates: string[], baseUrl: string = activeBaseUrl): Promise<Raw[]> {
+  const deduped = new Map<string, Raw>();
+  for (const path of candidates) {
+    try {
+      const rows = await fetchAllPages([path], baseUrl);
+      rows.forEach((row) => {
+        const key = String(row._id ?? row.id ?? '');
+        if (key && !deduped.has(key)) {
+          deduped.set(key, row);
+        }
+      });
+    } catch {
+      // Variant 404s or fails -> skip to the next one.
+    }
+  }
+  return Array.from(deduped.values());
+}
+
 const UNIT_PATH = ['/obj/Unit', '/obj/Project'];
 const PROJECT_PATH = ['/obj/Project'];
 const INSTALLMENT_PATH = ['/obj/Installment'];
-const PAYMENT_PATH = ['/obj/Payments', '/obj/Pago'];
-const PROGRESS_PATH = ['/obj/ConstructionUpdate', '/obj/Progress'];
-const DOCUMENT_PATH = ['/obj/Document'];
+const PAYMENT_PATH = ['/obj/Payments'];
+const PAGO_PATH = ['/obj/Pago', '/obj/Pagos'];
+const PROGRESS_PATH = ['/obj/ConstructionUpdate', '/obj/Progress', '/obj/Avance', '/obj/AvanceObra', '/obj/Avances'];
+const DOCUMENT_PATH = ['/obj/Document', '/obj/Documentos', '/obj/Archivos'];
 const USER_PATH = ['/obj/User'];
 const SALES_PATH = ['/obj/sales', '/obj/Sales', '/obj/Venta', '/obj/Ventas'];
 
 const EMAIL_KEYS = ['email', 'Correo', 'Mail', 'User Email'];
 
 const INSTALLMENT_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'User', 'Usuario', 'Cliente', 'unit', 'user', 'cotizacion', 'Venta', 'Sale'];
-const PAYMENT_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'User', 'Usuario', 'Cliente', 'Client', 'unit', 'user', 'cotizacion', 'Venta', 'Sale'];
-const PROGRESS_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'Project', 'project', 'Proyecto', 'Proyecto ID', 'User', 'Usuario', 'cotizacion', 'Venta', 'Sale'];
-const DOCUMENT_FILTER_KEYS = ['Unidad', 'Unit', 'Unidad ID', 'Unit ID', 'User', 'Usuario', 'Cliente', 'Client', 'unit', 'user', 'cotizacion', 'Venta', 'Sale'];
+const PAYMENT_FILTER_KEYS = ['Unidad', 'unidad', 'Unit', 'unit', 'Unidad ID', 'Unit ID', 'Venta', 'venta', 'Sale', 'sale', 'Cliente', 'cliente', 'Client', 'client', 'User', 'Usuario', 'user', 'cotizacion'];
+const PROGRESS_FILTER_KEYS = ['Unidad', 'unidad', 'Unit', 'unit', 'Unidad ID', 'Unit ID', 'Project', 'project', 'Proyecto', 'proyecto', 'Proyecto ID', 'User', 'Usuario', 'cotizacion', 'Venta', 'Sale'];
+const DOCUMENT_FILTER_KEYS = ['Unidad', 'unit', 'Unit', 'Unidad ID', 'Unit ID', 'Proyecto', 'proyecto', 'Project', 'project', 'Cliente', 'cliente', 'Client', 'client', 'User', 'Usuario', 'user'];
 const SALE_USER_KEYS = ['client', 'Client', 'Cliente', 'user', 'User', 'Usuario', 'comprador', 'Comprador', 'Correo'];
 
 function extractRefIds(value: unknown): string[] {
@@ -235,6 +254,34 @@ function extractRefIds(value: unknown): string[] {
       .filter((part) => part.length > 0);
   }
   return [];
+}
+
+function formatShortTimestamp(value: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  const months = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+  return `${date.getDate()} ${months[date.getMonth()]} ${String(date.getFullYear()).slice(2)}`;
+}
+
+function extractNotifications(rawUser: Raw): UserNotification[] {
+  const notifications = rawUser['notifications'] ?? rawUser['Notificaciones'] ?? rawUser['notificaciones'];
+  if (!Array.isArray(notifications)) {
+    return [];
+  }
+  return notifications
+    .map((item, index) => {
+      const obj = item && typeof item === 'object' ? (item as Raw) : { title: String(item) };
+      const title = toString(obj.title ?? obj.text ?? obj.message ?? obj.body ?? obj.Texto);
+      const timeRaw = toString(obj.timestamp ?? obj.date ?? obj.createdAt ?? obj['Created Date'] ?? obj.fecha);
+      return {
+        id: toString(obj._id ?? obj.id ?? `notif-${index}`),
+        title: title || 'Notificación',
+        detail: toString(obj.detail ?? obj.subtitle ?? obj.description),
+        time: formatShortTimestamp(timeRaw) || 'Reciente',
+      };
+    })
+    .filter((notification) => notification.title.length > 0);
 }
 
 function extractSaleUnitIds(sales: Raw[]): string[] {
@@ -396,17 +443,24 @@ export async function fetchRawInstallments(filterValues: string[] = []): Promise
 }
 
 export async function fetchRawPayments(filterValues: string[] = []): Promise<Raw[]> {
-  const rows = await fetchAllPages(PAYMENT_PATH);
+  // Scheduled installments source (Estado de Cuenta).
+  const rows = await fetchAllVariants(PAYMENT_PATH);
+  return filterRawByValue(rows, PAYMENT_FILTER_KEYS, filterValues);
+}
+
+export async function fetchRawExecutedPayments(filterValues: string[] = []): Promise<Raw[]> {
+  // Executed transaction history source (Pagos tab).
+  const rows = await fetchAllVariants(PAGO_PATH);
   return filterRawByValue(rows, PAYMENT_FILTER_KEYS, filterValues);
 }
 
 export async function fetchRawProgress(filterValues: string[] = []): Promise<Raw[]> {
-  const rows = await fetchAllPages(PROGRESS_PATH);
+  const rows = await fetchAllVariants(PROGRESS_PATH);
   return filterRawByValue(rows, PROGRESS_FILTER_KEYS, filterValues);
 }
 
 export async function fetchRawDocuments(filterValues: string[] = []): Promise<Raw[]> {
-  const rows = await fetchAllPages(DOCUMENT_PATH);
+  const rows = await fetchAllVariants(DOCUMENT_PATH);
   return filterRawByValue(rows, DOCUMENT_FILTER_KEYS, filterValues);
 }
 
@@ -471,6 +525,7 @@ async function authenticateAgainst(email: string, password: string, baseUrl: str
             rawUser['Proyectos Asignados'] ?? rawUser['Unidades'] ?? rawUser.assignedProperties,
           ),
           photoUrl: formatImageUrl(toString(rawUser['foto de perfil'] ?? rawUser.avatar ?? rawUser.Avatar)) ?? '',
+          notifications: extractNotifications(rawUser),
         };
       }
     } catch (error) {
@@ -514,6 +569,7 @@ async function authenticateAgainst(email: string, password: string, baseUrl: str
       userRow['Proyectos Asignados'] ?? userRow['Unidades'] ?? userRow.proyectos_asignados,
     ),
     photoUrl: formatImageUrl(toString(userRow['foto de perfil'] ?? userRow.avatar ?? userRow.Avatar)) ?? '',
+    notifications: extractNotifications(userRow),
   };
 }
 
