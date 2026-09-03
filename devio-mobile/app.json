@@ -2,7 +2,7 @@
   "expo": {
     "name": "DEVIO Mobile",
     "slug": "devio-mobile",
-    "version": "2.11.0",
+    "version": "2.12.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -14,7 +14,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.deviomx.app",
-      "buildNumber": "100",
+      "buildNumber": "103",
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "DEVIO te notifica sobre el estado de tus pagos, avances de obra y documentos de tu propiedad.",
         "NSPhotoLibraryUsageDescription": "DEVIO permite adjuntar fotografías de avance de obra y comprobantes de pago.",

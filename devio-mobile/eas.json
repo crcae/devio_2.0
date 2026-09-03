@@ -16,6 +16,12 @@
       "autoIncrement": true,
       "ios": {
         "resourceClass": "m1-medium"
+      },
+      "env": {
+        "EXPO_PUBLIC_BUBBLE_BASE_URL": "https://app.deviomx.com/api/1.1",
+        "EXPO_PUBLIC_BUBBLE_API_KEY": "b897e26d606c39b59554b15adc423eb3",
+        "EXPO_PUBLIC_USE_MOCK_DATA": "false",
+        "EXPO_PUBLIC_BUBBLE_ENV": "live"
       }
     }
   },
