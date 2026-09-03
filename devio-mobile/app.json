@@ -18,7 +18,8 @@
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "DEVIO te notifica sobre el estado de tus pagos, avances de obra y documentos de tu propiedad.",
         "NSPhotoLibraryUsageDescription": "DEVIO permite adjuntar fotografías de avance de obra y comprobantes de pago.",
-        "NSCameraUsageDescription": "DEVIO permite tomar fotografías para documentar avances de obra."
+        "NSCameraUsageDescription": "DEVIO permite tomar fotografías para documentar avances de obra.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -46,6 +47,11 @@
         }
       ],
       "expo-sharing"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "0f08c9cd-c185-4809-a9da-4fc34f3de77b"
+      }
+    }
   }
 }
