@@ -22,9 +22,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "@devio-apple-id",
-        "ascAppId": "@devio-asc-app-id",
-        "appleTeamId": "@devio-apple-team-id"
+        "appleId": "deviomx@gmail.com",
+        "appleTeamId": "NUKM943VG2",
+        "ascAppId": "6760320536"
       }
     }
   }
