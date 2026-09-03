@@ -301,7 +301,7 @@ export function adaptBubblePayments(rawList: Raw[]): AdaptedExecutedPayment[] {
       date: formatPaymentDate(toString(getField(raw, ['Fecha pago', 'Fecha Pago', 'Fecha programada', 'Fecha', 'paid_date', 'Date']))),
       method: toString(getField(raw, ['Metodo pago', 'Metodo de Pago', 'Método de Pago', 'Método', 'Metodo', 'Method']), 'Transferencia'),
       amount: toNumber(getField(raw, ['Monto programado', 'Monto', 'amount', 'Amount'])),
-      receiptUrl: formatImageUrl(toString(getField(raw, ['Recibo', 'Comprobante', 'Documento', 'Receipt', 'Archivo', 'file']))) ?? '',
+      receiptUrl: formatImageUrl(toString(getField(raw, ['Recibo', 'Comprobante', 'comprobante', 'comprobante_t', 'Comprobante t', 'Documento', 'Receipt', 'Archivo', 'file']))) ?? '',
     }));
 }
 
@@ -348,7 +348,13 @@ export function adaptBubbleProgress(rawList: Raw[]): {
 }
 
 function isVisibleRecord(raw: Raw): boolean {
-  const value = raw['visible'] ?? raw['Visible'] ?? raw['activo'] ?? raw['Activo'];
+  const value =
+    raw['client visible'] ??
+    raw['Client visible'] ?? // eslint-disable-line dot-notation
+    raw['Visible'] ??
+    raw['visible'] ??
+    raw['Activo'] ??
+    raw['activo'];
   if (value === undefined || value === null) return true;
   const normalized = String(value).toLowerCase();
   return normalized === 'yes' || normalized === 'true' || normalized === 'si' || normalized === '1';
@@ -393,16 +399,21 @@ export function calculatePendingBalance(payments: Payment[], fallback = 0): numb
   return Math.round(payments.reduce((sum, payment) => sum + (payment.pendingAmount ?? 0), 0));
 }
 
+function startOfDay(date: Date): number {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+}
+
 export function calculateOverdueBalance(payments: Payment[]): number {
-  const now = new Date();
+  const today = startOfDay(new Date());
   return Math.round(
     payments
-      .filter(
-        (payment) =>
-          payment.pendingAmount > 0 &&
-          payment.dueDate &&
-          new Date(payment.dueDate) < now,
-      )
+      .filter((payment) => {
+        if (payment.pendingAmount <= 0 || !payment.dueDate) return false;
+        const due = new Date(payment.dueDate);
+        if (Number.isNaN(due.getTime())) return false;
+        // Strictly past: scheduled calendar date is before today.
+        return startOfDay(due) < today;
+      })
       .reduce((sum, payment) => sum + (payment.pendingAmount ?? 0), 0),
   );
 }

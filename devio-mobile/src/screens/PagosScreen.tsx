@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -9,6 +10,9 @@ import {
   Text,
   View,
 } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 import { ChevronDown, ChevronUp, Download, FileDown, FileText, X } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
@@ -48,6 +52,7 @@ interface ExecutedPayment {
   date: string;
   method: string;
   amount: number;
+  receiptUrl?: string;
 }
 
 function formatMXN(amount: number): string {
@@ -62,12 +67,14 @@ function formatShortDate(iso: string): string {
 }
 
 export default function PagosScreen({ navigation }: Props) {
-  const { selectedProperty, payments, executedPayments: contextExecutedPayments, loadPayments, dataLoading, isDemoMode } = useApp();
+  const { user, selectedProperty, payments, executedPayments: contextExecutedPayments, loadPayments, dataLoading, isDemoMode } = useApp();
   const [activeTab, setActiveTab] = useState<Tab>('estado');
   const [refreshing, setRefreshing] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [statementModalOpen, setStatementModalOpen] = useState(false);
   const [receiptPayment, setReceiptPayment] = useState<ExecutedPayment | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const unitId = selectedProperty?._id ?? '';
   const showOverlay = dataLoading && payments.length === 0;
@@ -178,6 +185,129 @@ export default function PagosScreen({ navigation }: Props) {
       await loadPayments(unitId);
     }
     setRefreshing(false);
+  };
+
+  const downloadAndShareFile = async (fileUrl: string, fileName: string) => {
+    if (!fileUrl) {
+      Alert.alert('Descarga', 'El archivo no está disponible en este momento.');
+      return;
+    }
+    try {
+      // Unique timestamped name avoids DestinationAlreadyExistsException on repeat downloads.
+      const safeName = `${Date.now()}_${fileName}`;
+      const localFile = await File.downloadFileAsync(fileUrl, new File(Paths.document, safeName));
+      if (!localFile?.uri) {
+        throw new Error('No se pudo guardar el archivo.');
+      }
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Compartir', 'La compartición de archivos no está disponible en este dispositivo.');
+        return;
+      }
+      await Sharing.shareAsync(localFile.uri, {
+        UTI: '.pdf',
+        mimeType: 'application/pdf',
+      });
+    } catch (error) {
+      Alert.alert(
+        'Error al descargar',
+        error instanceof Error ? error.message : 'No fue posible descargar el archivo.',
+      );
+    }
+  };
+
+  const buildStatementPdfHtml = () => {
+    const projectName = selectedProperty?.name ?? 'DEVIO';
+    const rows = installments
+      .map(
+        (row) => `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #E2E8F0;color:#1F3652;">${row.unit}</td>
+          <td style="padding:8px;border-bottom:1px solid #E2E8F0;color:#1F3652;text-align:right;">${formatMXN(row.amount)}</td>
+          <td style="padding:8px;border-bottom:1px solid #E2E8F0;color:#1F3652;text-align:right;">${formatMXN(row.interest)}</td>
+          <td style="padding:8px;border-bottom:1px solid #E2E8F0;text-align:right;"><span style="padding:4px 10px;border-radius:20px;font-size:11px;font-weight:600;color:#1F3652;background:#EDF2F7;">${row.status}</span></td>
+        </tr>`,
+      )
+      .join('');
+
+    return `
+      <html>
+        <head>
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <style>
+            body { font-family: -apple-system, 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1F3652; padding: 24px; }
+            .header { border-bottom: 3px solid #C89E6A; padding-bottom: 12px; margin-bottom: 16px; }
+            .title { font-size: 26px; font-weight: 800; color: #1F3652; letter-spacing: 1px; }
+            .subtitle { font-size: 13px; color: #64748B; margin-top: 2px; }
+            .badge { display:inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; color: #C89E6A; border: 1px solid #C89E6A; }
+            .meta { margin-top: 8px; }
+            h2 { font-size: 16px; margin: 20px 0 8px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+            th { text-align: left; font-size: 11px; text-transform: uppercase; color: #64748B; padding: 8px; border-bottom: 2px solid #E2E8F0; }
+            td { font-size: 13px; }
+            .totals { margin-top: 16px; padding: 16px; background: #F0F2F5; border-radius: 12px; }
+            .total-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 14px; }
+            .total-row b { color: #1F3652; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">DEVIO</div>
+            <div class="subtitle">Estado de Cuenta</div>
+            <div class="meta">Cliente: <b>${user?.name ?? '—'}</b></div>
+            <div class="meta">Propiedad: <b>${projectName}</b> · Unidad: <b># ${unitPrefix}</b></div>
+            <div class="badge" style="margin-top:8px;">${summary.paidPercentage}% Pagado</div>
+          </div>
+
+          <h2>Programa de Pagos</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Unidad</th>
+                <th style="text-align:right;">Cantidad</th>
+                <th style="text-align:right;">Intereses</th>
+                <th style="text-align:right;">Estatus</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+
+          <div class="totals">
+            <div class="total-row"><span>Total Pagado</span><b>${formatMXN(summary.totalPaid)}</b></div>
+            <div class="total-row"><span>Saldo Pendiente</span><b>${formatMXN(summary.pendingBalance)}</b></div>
+            <div class="total-row"><span>Saldo Vencido</span><b>${formatMXN(summary.overdueBalance)}</b></div>
+          </div>
+        </body>
+      </html>
+    `;
+  };
+
+  const handleDownloadStatementPdf = async () => {
+    setIsGeneratingPdf(true);
+    try {
+      const { uri } = await Print.printToFileAsync({ html: buildStatementPdfHtml() });
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Compartir', 'La compartición de archivos no está disponible en este dispositivo.');
+        return;
+      }
+      await Sharing.shareAsync(uri, { UTI: '.pdf', mimeType: 'application/pdf' });
+    } catch (error) {
+      Alert.alert(
+        'Error al generar el PDF',
+        error instanceof Error ? error.message : 'No fue posible generar el Estado de Cuenta.',
+      );
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handleDownloadReceipt = async (executedPayment: ExecutedPayment) => {
+    const fileUrl = (executedPayment as ExecutedPayment & { receiptUrl?: string }).receiptUrl ?? '';
+    setDownloadingId(executedPayment.id);
+    try {
+      await downloadAndShareFile(fileUrl, `recibo-${executedPayment.id}.pdf`);
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const renderInstallment = ({ item }: { item: InstallmentRow }) => {
@@ -433,10 +563,17 @@ export default function PagosScreen({ navigation }: Props) {
 
             <Pressable
               style={({ pressed }) => [styles.downloadButton, pressed && styles.rowPressed]}
-              onPress={() => Alert.alert('Descarga', 'El Estado de Cuenta PDF se descargará en breve.')}
+              onPress={handleDownloadStatementPdf}
+              disabled={isGeneratingPdf}
             >
-              <FileDown size={16} color={COLORS.surface} strokeWidth={2.2} />
-              <Text style={styles.downloadButtonText}>Descargar PDF</Text>
+              {isGeneratingPdf ? (
+                <ActivityIndicator color={COLORS.surface} />
+              ) : (
+                <FileDown size={16} color={COLORS.surface} strokeWidth={2.2} />
+              )}
+              <Text style={styles.downloadButtonText}>
+                {isGeneratingPdf ? 'Generando PDF...' : 'Descargar PDF'}
+              </Text>
             </Pressable>
           </View>
         </View>
@@ -489,10 +626,19 @@ export default function PagosScreen({ navigation }: Props) {
 
                 <Pressable
                   style={({ pressed }) => [styles.downloadButton, pressed && styles.rowPressed]}
-                  onPress={() => Alert.alert('Descarga', 'El comprobante PDF se descargará en breve.')}
+                  onPress={() => handleDownloadReceipt(receiptPayment)}
+                  disabled={downloadingId === receiptPayment.id}
                 >
-                  <FileDown size={16} color={COLORS.surface} strokeWidth={2.2} />
-                  <Text style={styles.downloadButtonText}>Descargar Comprobante PDF</Text>
+                  {downloadingId === receiptPayment.id ? (
+                    <ActivityIndicator color={COLORS.surface} />
+                  ) : (
+                    <FileDown size={16} color={COLORS.surface} strokeWidth={2.2} />
+                  )}
+                  <Text style={styles.downloadButtonText}>
+                    {downloadingId === receiptPayment.id
+                      ? 'Descargando...'
+                      : 'Descargar Comprobante PDF'}
+                  </Text>
                 </Pressable>
               </>
             ) : null}

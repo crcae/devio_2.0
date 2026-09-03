@@ -2,7 +2,7 @@
   "expo": {
     "name": "DEVIO Mobile",
     "slug": "devio-mobile",
-    "version": "3.0.0",
+    "version": "2.11.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,7 +13,7 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.devio.app",
+      "bundleIdentifier": "com.deviomx.app",
       "buildNumber": "100",
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "DEVIO te notifica sobre el estado de tus pagos, avances de obra y documentos de tu propiedad.",
@@ -44,7 +44,8 @@
         {
           "color": "#1F3652"
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

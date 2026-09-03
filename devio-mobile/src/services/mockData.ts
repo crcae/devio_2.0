@@ -1,4 +1,4 @@
-import type { Document, Payment, Progress, Unit, User } from '../types';
+import type { Payment, Progress, Unit, User } from '../types';
 import { COLORS } from '../constants/theme';
 import type { AdaptedExecutedPayment, AdaptedProgressUpdate } from './bubbleAdapter';
 
@@ -125,19 +125,6 @@ export const MOCK_PROGRESS: Progress[] = [
     lastUpdate: '2026-07-28',
     images: [],
   },
-];
-
-export interface MockDocumentItem extends Document {
-  size: string;
-}
-
-export const MOCK_DOCUMENTS: MockDocumentItem[] = [
-  { _id: 'mock-doc-1', title: 'Contrato de Compraventa.pdf', category: 'Contratos', fileUrl: '', createdDate: '2026-03-20', size: '2.4 MB' },
-  { _id: 'mock-doc-2', title: 'Pagaré de Enganche.pdf', category: 'Contratos', fileUrl: '', createdDate: '2026-03-20', size: '1.1 MB' },
-  { _id: 'mock-doc-3', title: 'Recibo Pago 2.pdf', category: 'Recibos', fileUrl: '', createdDate: '2026-06-15', size: '620 KB' },
-  { _id: 'mock-doc-4', title: 'Recibo Pago 3.pdf', category: 'Recibos', fileUrl: '', createdDate: '2026-09-15', size: '640 KB' },
-  { _id: 'mock-doc-5', title: 'Plano Arquitectónico.pdf', category: 'Planos', fileUrl: '', createdDate: '2026-01-10', size: '8.2 MB' },
-  { _id: 'mock-doc-6', title: 'Plano Eléctrico.pdf', category: 'Planos', fileUrl: '', createdDate: '2026-02-12', size: '5.6 MB' },
 ];
 
 export const MOCK_PAYMENT_CONCEPTS: Record<string, string> = {

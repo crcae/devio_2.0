@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Modal,
@@ -11,6 +12,8 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 import { ChevronLeft, Download, FileText, Search, X } from 'lucide-react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { COLORS, RADIUS, SPACING } from '../constants/theme';
@@ -45,6 +48,7 @@ export default function DocumentsScreen({ navigation }: Props) {
   const [searchFocused, setSearchFocused] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [activeDoc, setActiveDoc] = useState<DocumentItem | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const unitId = selectedProperty?._id ?? '';
   const showOverlay = dataLoading && documents.length === 0;
@@ -71,8 +75,35 @@ export default function DocumentsScreen({ navigation }: Props) {
     setRefreshing(false);
   };
 
-  const handleDownload = (doc: DocumentItem) => {
-    Alert.alert('Descarga', `Descargando "${doc.title}".`);
+  const handleDownload = async (doc: DocumentItem) => {
+    const fileUrl = doc.fileUrl;
+    if (!fileUrl) {
+      Alert.alert('Descarga', 'Este documento no tiene archivo disponible.');
+      return;
+    }
+    const cleanUrl = fileUrl.startsWith('//') ? `https:${fileUrl}` : fileUrl;
+    const fileName = doc.title.includes('.') ? doc.title : `${doc.title}.pdf`;
+    // Unique timestamped name avoids DestinationAlreadyExistsException on repeat downloads.
+    const safeName = `${Date.now()}_${fileName}`;
+    setDownloadingId(doc._id);
+    try {
+      const localFile = await File.downloadFileAsync(cleanUrl, new File(Paths.document, safeName));
+      if (!localFile?.uri) {
+        throw new Error('No se pudo guardar el archivo.');
+      }
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Compartir', 'La compartición de archivos no está disponible en este dispositivo.');
+        return;
+      }
+      await Sharing.shareAsync(localFile.uri);
+    } catch (error) {
+      Alert.alert(
+        'Error al descargar',
+        error instanceof Error ? error.message : 'No fue posible descargar el documento.',
+      );
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   const renderDocument = ({ item }: { item: DocumentItem }) => (
@@ -90,6 +121,19 @@ export default function DocumentsScreen({ navigation }: Props) {
         <Text style={styles.docDate}>{formatDateTime(item.createdDate)}</Text>
       </View>
       {item.size ? <Text style={styles.docSize}>{item.size}</Text> : null}
+      <Pressable
+        style={({ pressed }) => [styles.rowDownload, pressed && styles.pressed]}
+        onPress={() => handleDownload(item)}
+        disabled={downloadingId === item._id}
+        accessibilityLabel={`Descargar ${item.title}`}
+        hitSlop={8}
+      >
+        {downloadingId === item._id ? (
+          <ActivityIndicator size="small" color={COLORS.primary} />
+        ) : (
+          <Download size={18} color={COLORS.primary} strokeWidth={2.2} />
+        )}
+      </Pressable>
     </Pressable>
   );
 
@@ -218,9 +262,16 @@ export default function DocumentsScreen({ navigation }: Props) {
                 <Pressable
                   style={({ pressed }) => [styles.modalButton, pressed && styles.modalButtonPressed]}
                   onPress={() => handleDownload(activeDoc)}
+                  disabled={downloadingId === activeDoc._id}
                 >
-                  <Download size={16} color={COLORS.surface} strokeWidth={2.2} />
-                  <Text style={styles.modalButtonText}>Descargar PDF</Text>
+                  {downloadingId === activeDoc._id ? (
+                    <ActivityIndicator color={COLORS.surface} />
+                  ) : (
+                    <Download size={16} color={COLORS.surface} strokeWidth={2.2} />
+                  )}
+                  <Text style={styles.modalButtonText}>
+                    {downloadingId === activeDoc._id ? 'Descargando...' : 'Descargar PDF'}
+                  </Text>
                 </Pressable>
               </>
             ) : null}
@@ -366,6 +417,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: SPACING.sm,
     paddingVertical: 3,
     overflow: 'hidden',
+  },
+  rowDownload: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: SPACING.sm,
   },
   modalBackdrop: {
     flex: 1,
