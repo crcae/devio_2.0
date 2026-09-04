@@ -66,6 +66,7 @@ interface AppContextValue {
   isAuthenticated: boolean;
   isDemoMode: boolean;
   isRestoringSession: boolean;
+  bootProgress: number;
   isLoading: boolean;
   dataLoading: boolean;
   login: (email: string, password: string, useMock?: boolean) => Promise<void>;
@@ -93,6 +94,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [dataLoading, setDataLoading] = useState(false);
   const [forceLive, setForceLive] = useState(false);
   const [isRestoringSession, setIsRestoringSession] = useState(true);
+  const [bootProgress, setBootProgress] = useState(0);
 
   const pendingRequests = useRef(0);
   const isHydratingRef = useRef(false);
@@ -272,26 +274,48 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       isHydratingRef.current = true;
       setBusy(1);
+      setBootProgress(25);
       try {
-        const properties = await loadUserProperties(userId);
-        if (__DEV__) {
-          console.log(
-            `[BubbleAuth] User ID: ${userId} | User Email: ${userRef.current?.email ?? 'N/A'} | Linked Unit Count: ${properties.length}`,
-          );
-        }
-        if (properties.length > 0) {
-          setSelectedPropertyState((current) => current ?? properties[0] ?? null);
-        }
-        const targetUnitId = unitId ?? properties[0]?._id;
-        if (targetUnitId) {
-          await Promise.all([
-            loadPayments(targetUnitId),
-            loadProgress(targetUnitId),
-            loadDocuments(targetUnitId),
+        if (unitId) {
+          // Known target unit: run properties + payments/progress/documents in parallel.
+          const [properties] = await Promise.all([
+            loadUserProperties(userId),
+            loadPayments(unitId),
+            loadProgress(unitId),
+            loadDocuments(unitId),
           ]);
+          if (__DEV__) {
+            console.log(
+              `[BubbleAuth] User ID: ${userId} | User Email: ${userRef.current?.email ?? 'N/A'} | Linked Unit Count: ${properties.length}`,
+            );
+          }
+          if (properties.length > 0) {
+            setSelectedPropertyState((current) => current ?? properties[0] ?? null);
+          }
+        } else {
+          const properties = await loadUserProperties(userId);
+          setBootProgress(60);
+          if (__DEV__) {
+            console.log(
+              `[BubbleAuth] User ID: ${userId} | User Email: ${userRef.current?.email ?? 'N/A'} | Linked Unit Count: ${properties.length}`,
+            );
+          }
+          if (properties.length > 0) {
+            setSelectedPropertyState((current) => current ?? properties[0] ?? null);
+          }
+          const targetUnitId = properties[0]?._id;
+          if (targetUnitId) {
+            await Promise.all([
+              loadPayments(targetUnitId),
+              loadProgress(targetUnitId),
+              loadDocuments(targetUnitId),
+            ]);
+          }
         }
+        setBootProgress(100);
       } catch (error) {
         showDiagnostic(error);
+        setBootProgress(100);
       } finally {
         isHydratingRef.current = false;
         hasHydratedRef.current = userId;
@@ -374,11 +398,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (savedEnv) {
           setActiveBaseUrl(savedEnv);
         }
+        setBootProgress(15);
         const raw = await AsyncStorage.getItem(SESSION_KEY);
         if (raw) {
           const parsed = JSON.parse(raw) as { user?: User };
           if (parsed?.user) {
             setUser(parsed.user);
+            setBootProgress(25);
             const isMockSession = parsed.user.token === 'mock-token';
             setForceLive(!isMockSession && !USE_MOCK_DATA);
             if (isMockSession || USE_MOCK_DATA) {
@@ -387,6 +413,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
               setPayments(MOCK_PAYMENTS);
               setProgress(MOCK_PROGRESS);
               setDocuments([]);
+              setBootProgress(100);
             } else {
               await hydrateUserData(parsed.user._id, parsed.user.assignedProperties?.[0]);
               void registerUserPushToken(parsed.user._id);
@@ -419,6 +446,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isAuthenticated,
       isDemoMode,
       isRestoringSession,
+      bootProgress,
       isLoading,
       dataLoading,
       login,
@@ -442,6 +470,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       isAuthenticated,
       isDemoMode,
       isRestoringSession,
+      bootProgress,
       isLoading,
       dataLoading,
       login,

@@ -351,29 +351,19 @@ export async function fetchRawSalesForUser(userId?: string): Promise<Raw[]> {
 }
 
 export async function fetchRawUnits(userId?: string): Promise<Raw[]> {
-  // Fetch the FULL collection via paginated cursor loop — no HTTP constraints.
-  const rows = await fetchAllPages(UNIT_PATH);
+  // Fetch units, users and sales in parallel to minimize startup latency.
+  const [rows, users, sales] = await Promise.all([
+    fetchAllPages(UNIT_PATH),
+    userId ? fetchAllPages(USER_PATH).catch(() => [] as Raw[]) : Promise.resolve([] as Raw[]),
+    userId ? fetchAllPages(SALES_PATH).catch(() => [] as Raw[]) : Promise.resolve([] as Raw[]),
+  ]);
   if (!userId) {
     return rows;
   }
 
-  // Resolve the authenticated user (id + email) for the in-memory join.
-  let rawUser: Raw | null = null;
-  try {
-    const users = await fetchAllPages(USER_PATH);
-    rawUser = users.find((user) => String(user._id) === userId) ?? null;
-  } catch {
-    rawUser = null;
-  }
+  const rawUser = users.find((user) => String(user._id) === userId) ?? null;
   const userEmail = rawUser ? (nestedAuthEmail(rawUser) || findUserEmail(rawUser)) : '';
 
-  // Fetch ALL sales (paginated) and deep-match against the user (id or email).
-  let sales: Raw[] = [];
-  try {
-    sales = await fetchAllPages(SALES_PATH);
-  } catch {
-    sales = [];
-  }
   const matchedSales = sales.filter((sale) =>
     recordReferencesUser(sale, userId, userEmail),
   );

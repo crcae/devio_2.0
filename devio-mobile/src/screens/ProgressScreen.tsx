@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
+  Dimensions,
   Image,
   Modal,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -16,6 +19,7 @@ import {
   Building2,
   Calendar,
   Camera,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Grid3x3,
@@ -34,6 +38,10 @@ import EmptyState from '../components/EmptyState';
 import { SkeletonBlock, SkeletonCard } from '../components/SkeletonCard';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Progress'>;
+
+const CARD_WIDTH = Math.round(Dimensions.get('window').width * 0.78);
+const CARD_MARGIN = 12;
+const SNAP_INTERVAL = CARD_WIDTH + CARD_MARGIN;
 
 interface SpecialtyRow {
   id: string;
@@ -122,6 +130,7 @@ export default function ProgressScreen({ navigation }: Props) {
   const [activeUpdate, setActiveUpdate] = useState<AdaptedProgressUpdate | null>(null);
   const [lightboxPhotos, setLightboxPhotos] = useState<AdaptedProgressUpdate['photos'] | null>(null);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+  const [activeHistoryIndex, setActiveHistoryIndex] = useState(0);
 
   const historyList = progressHistory.length > 0
     ? progressHistory
@@ -137,6 +146,16 @@ export default function ProgressScreen({ navigation }: Props) {
       loadProgress(unitId);
     }
   }, [unitId, loadProgress]);
+
+  useEffect(() => {
+    setActiveHistoryIndex(0);
+  }, [historyList.length]);
+
+  const handleHistoryScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const rawIndex = Math.round(event.nativeEvent.contentOffset.x / SNAP_INTERVAL);
+    const clamped = Math.min(Math.max(rawIndex, 0), Math.max(historyList.length - 1, 0));
+    setActiveHistoryIndex((prev) => (prev === clamped ? prev : clamped));
+  };
 
   const projectTitle = selectedProperty?.name ?? 'Castellana Residences';
   const unitLabel = selectedProperty
@@ -298,59 +317,115 @@ export default function ProgressScreen({ navigation }: Props) {
           </View>
 
           <View style={styles.sectionCard}>
-            <Text style={styles.sectionTitle}>Histórico Avances de Obra</Text>
-            {historyList.length > 0 ? (
+            <View style={styles.historyHeader}>
+              <Text style={styles.sectionTitle}>Histórico de Avances</Text>
+              {historyList.length > 0 && (
+                <View style={styles.historyCountBadge}>
+                  <Text style={styles.historyCountBadgeText}>
+                    {historyList.length} {historyList.length === 1 ? 'entrega' : 'entregas'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {historyList.length > 0 ? (
+            <>
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                style={styles.historyCarousel}
+                snapToInterval={SNAP_INTERVAL}
+                decelerationRate="fast"
+                snapToAlignment="start"
+                contentContainerStyle={styles.historyCarouselContent}
+                onScroll={handleHistoryScroll}
+                scrollEventThrottle={16}
               >
-                {historyList.map((update) => {
+                {historyList.map((update, index) => {
+                  const isComplete = update.overall >= 100;
                   const photoUrl =
                     update.photos[0]?.url ||
                     (selectedProperty as AdaptedProperty | null)?.images?.[0];
                   return (
                     <Pressable
                       key={update.id}
-                      style={({ pressed }) => [styles.historyPhotoCard, pressed && styles.pressed]}
+                      style={({ pressed }) => [
+                        styles.historyCard,
+                        { width: CARD_WIDTH },
+                        pressed && styles.pressed,
+                      ]}
                       onPress={() => setActiveUpdate(update)}
                     >
-                      <View style={styles.historyPhotoWrap}>
+                      <View style={styles.historyCardImageWrap}>
                         {photoUrl ? (
-                          <Image source={{ uri: photoUrl }} style={styles.historyPhoto} resizeMode="cover" />
+                          <Image source={{ uri: photoUrl }} style={styles.historyCardImage} resizeMode="cover" />
                         ) : (
-                          <View style={[styles.historyPhotoTone, { backgroundColor: COLORS.primary }]}>
-                            <Camera size={28} color={COLORS.gold} strokeWidth={1.6} />
+                          <View style={[styles.historyCardTone, { backgroundColor: COLORS.primary }]}>
+                            <Camera size={30} color={COLORS.gold} strokeWidth={1.6} />
                           </View>
                         )}
-                        <View style={styles.historyPhotoPercent}>
-                          <Text style={styles.historyPhotoPercentText}>{update.overall}%</Text>
+                        <View style={styles.historyStepBadge}>
+                          <Text style={styles.historyStepBadgeText}>
+                            {index + 1} de {historyList.length}
+                          </Text>
                         </View>
-                        <View style={styles.historyPhotoDateBadge}>
-                          <Text style={styles.historyPhotoDateBadgeText}>{update.dateCard}</Text>
+                        <View
+                          style={[
+                            styles.historyCardPercent,
+                            isComplete && styles.historyCardPercentComplete,
+                          ]}
+                        >
+                          <Text style={styles.historyCardPercentText}>{update.overall}%</Text>
                         </View>
                       </View>
-                      <View style={styles.historyPhotoBody}>
-                        <Text style={styles.historyPhotoTitle} numberOfLines={1}>
+                      <View style={styles.historyCardBody}>
+                        <Text style={styles.historyCardTitle} numberOfLines={2}>
                           {update.title}
                         </Text>
-                        <View style={styles.historyPhotoCta}>
-                          <Text style={styles.historyPhotoCtaText}>Ver detalle</Text>
-                          <ChevronRight size={14} color={COLORS.gold} />
+                        <View style={styles.historyCardMeta}>
+                          <View style={styles.historyCardDatePill}>
+                            <Calendar size={11} color={COLORS.gold} />
+                            <Text style={styles.historyCardDatePillText}>{update.dateCard}</Text>
+                          </View>
+                          <View style={styles.historyCardCta}>
+                            <Text style={styles.historyCardCtaText}>Ver detalle</Text>
+                            <ChevronRight size={14} color={COLORS.gold} />
+                          </View>
                         </View>
+                        {isComplete && (
+                          <View style={styles.historyCardCompleteBadge}>
+                            <CheckCircle2 size={12} color="#16A34A" />
+                            <Text style={styles.historyCardCompleteText}>100% Completado</Text>
+                          </View>
+                        )}
                       </View>
                     </Pressable>
                   );
                 })}
               </ScrollView>
-            ) : (
+              {historyList.length > 1 && (
+                <View style={styles.historyDots}>
+                  {historyList.map((_, dotIndex) => (
+                    <View
+                      key={dotIndex}
+                      style={[
+                        styles.historyDot,
+                        dotIndex === activeHistoryIndex && styles.historyDotActive,
+                      ]}
+                    />
+                  ))}
+                </View>
+              )}
+            </>
+          ) : (
+            <View style={styles.sectionCard}>
               <EmptyState
                 icon={Camera}
                 title="Sin actualizaciones de obra"
                 description="No hay reportes de avance registrados aún."
               />
-            )}
-          </View>
+            </View>
+          )}
         </ScrollView>
       )}
 
@@ -732,126 +807,159 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: COLORS.gold,
   },
-  historyCard: {
+  historyHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.background,
-    borderRadius: 14,
-    padding: SPACING.md,
-    marginTop: SPACING.sm,
+    justifyContent: 'space-between',
   },
-  historyThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: RADIUS.md,
+  historyCountBadge: {
     backgroundColor: COLORS.goldLight,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: 4,
   },
-  historyBody: {
-    flex: 1,
-    marginLeft: SPACING.md,
-  },
-  historyTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: COLORS.textPrimary,
-  },
-  historyDate: {
+  historyCountBadgeText: {
     fontSize: 12,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  historyPercent: {
-    fontSize: 16,
     fontWeight: '800',
     color: COLORS.gold,
   },
-  historyCarousel: {
-    marginHorizontal: -SPACING.lg,
-    paddingHorizontal: SPACING.lg,
-    paddingTop: SPACING.xs,
+  historyCarouselContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
-  historyPhotoCard: {
-    width: 190,
-    borderRadius: RADIUS.lg,
+  historyCard: {
     backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    marginRight: SPACING.md,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(203,213,225,0.8)',
+    marginRight: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08,
     shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
-  historyPhotoWrap: {
+  historyCardImageWrap: {
     position: 'relative',
+    padding: 10,
+    backgroundColor: COLORS.surface,
+  },
+  historyCardImage: {
     width: '100%',
-    height: 118,
+    height: 140,
+    borderRadius: 12,
     backgroundColor: COLORS.primary,
   },
-  historyPhoto: {
+  historyCardTone: {
     width: '100%',
-    height: '100%',
-    borderTopLeftRadius: RADIUS.lg,
-    borderTopRightRadius: RADIUS.lg,
-  },
-  historyPhotoTone: {
-    width: '100%',
-    height: '100%',
+    height: 140,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    borderTopLeftRadius: RADIUS.lg,
-    borderTopRightRadius: RADIUS.lg,
   },
-  historyPhotoPercent: {
-    position: 'absolute',
-    top: SPACING.sm,
-    right: SPACING.sm,
-    backgroundColor: 'rgba(31,54,82,0.92)',
-    borderRadius: RADIUS.pill,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: 3,
-  },
-  historyPhotoPercentText: {
-    color: COLORS.surface,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  historyPhotoDateBadge: {
+  historyStepBadge: {
     position: 'absolute',
     left: SPACING.sm,
     bottom: SPACING.sm,
     backgroundColor: 'rgba(15,23,42,0.72)',
     borderRadius: RADIUS.pill,
     paddingHorizontal: SPACING.sm,
-    paddingVertical: 3,
+    paddingVertical: 4,
   },
-  historyPhotoDateBadgeText: {
+  historyStepBadgeText: {
     color: COLORS.surface,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
   },
-  historyPhotoBody: {
-    padding: SPACING.md,
+  historyCardPercent: {
+    position: 'absolute',
+    top: SPACING.sm,
+    right: SPACING.sm,
+    backgroundColor: 'rgba(31,54,82,0.92)',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
   },
-  historyPhotoTitle: {
-    fontSize: 14,
+  historyCardPercentComplete: {
+    backgroundColor: '#16A34A',
+  },
+  historyCardPercentText: {
+    color: COLORS.surface,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  historyCardBody: {
+    paddingHorizontal: 14,
+    paddingBottom: 14,
+  },
+  historyCardTitle: {
+    fontSize: 15,
     fontWeight: '700',
     color: COLORS.textPrimary,
   },
-  historyPhotoCta: {
+  historyCardMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: SPACING.sm,
+    justifyContent: 'space-between',
+    marginTop: SPACING.xs,
   },
-  historyPhotoCtaText: {
+  historyCardDatePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.goldLight,
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 3,
+  },
+  historyCardDatePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: COLORS.gold,
+    marginLeft: 3,
+  },
+  historyCardCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  historyCardCtaText: {
     fontSize: 12,
     fontWeight: '700',
     color: COLORS.gold,
     marginRight: 2,
+  },
+  historyCardCompleteBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#ECFDF5',
+    borderRadius: RADIUS.pill,
+    paddingHorizontal: SPACING.sm,
+    paddingVertical: 4,
+    marginTop: SPACING.sm,
+  },
+  historyCardCompleteText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#16A34A',
+    marginLeft: 4,
+  },
+  historyDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.md,
+  },
+  historyDot: {
+    width: 7,
+    height: 7,
+    borderRadius: RADIUS.pill,
+    backgroundColor: 'rgba(148,163,184,0.5)',
+    marginHorizontal: 4,
+  },
+  historyDotActive: {
+    width: 20,
+    backgroundColor: COLORS.gold,
   },
   modalRoot: {
     flex: 1,

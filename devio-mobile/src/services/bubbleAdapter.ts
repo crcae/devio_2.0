@@ -360,9 +360,16 @@ function isVisibleRecord(raw: Raw): boolean {
   return normalized === 'yes' || normalized === 'true' || normalized === 'si' || normalized === '1';
 }
 
+const TEST_DOCUMENT_PATTERN = /(contrato tipo a|contrato de prueba|documento de prueba|test document|mock document)/i;
+
 export function adaptBubbleDocuments(rawList: Raw[]): Document[] {
   return rawList
     .filter(isVisibleRecord)
+    .filter((raw) => {
+      const title = toString(getField(raw, ['Título', 'Titulo', 'Title', 'Nombre', 'name']), '');
+      // Exclude test/demo records so ONLY genuine user documents render.
+      return !TEST_DOCUMENT_PATTERN.test(title);
+    })
     .map((raw, index) => ({
       _id: toString(getField(raw, ['_id', 'id']), `doc-${index}`),
       title: toString(getField(raw, ['Título', 'Titulo', 'Title', 'Nombre', 'name']), 'Documento'),

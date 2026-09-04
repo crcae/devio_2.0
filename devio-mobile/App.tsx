@@ -1,49 +1,29 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { COLORS } from './src/constants/theme';
 
 import { AppProvider, useApp } from './src/context/AppContext';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import OfflineBanner from './src/components/OfflineBanner';
-import BottomTab from './src/components/BottomTab';
+import AppLoader from './src/components/AppLoader';
+import MainTabNavigator from './src/navigation/MainTabNavigator';
 import type { RootStackParamList } from './src/navigation/types';
 import LoginScreen from './src/screens/LoginScreen';
-import DashboardScreen from './src/screens/DashboardScreen';
-import ProfileScreen from './src/screens/ProfileScreen';
 import PropertyDetailScreen from './src/screens/PropertyDetailScreen';
 import PagosScreen from './src/screens/PagosScreen';
 import ProgressScreen from './src/screens/ProgressScreen';
 import DocumentsScreen from './src/screens/DocumentsScreen';
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
-const Tab = createBottomTabNavigator();
-
-function MainTabs() {
-  return (
-    <Tab.Navigator
-      screenOptions={{ headerShown: false }}
-      tabBar={(props) => <BottomTab {...props} />}
-    >
-      <Tab.Screen name="home" component={DashboardScreen} options={{ title: 'Propiedades' }} />
-      <Tab.Screen name="user" component={ProfileScreen} options={{ title: 'Perfil' }} />
-    </Tab.Navigator>
-  );
-}
 
 function RootNavigator() {
-  const { isAuthenticated, isRestoringSession } = useApp();
+  const { isAuthenticated, isRestoringSession, bootProgress } = useApp();
 
   if (isRestoringSession) {
-    return (
-      <View style={styles.splash}>
-        <ActivityIndicator size="large" color={COLORS.gold} />
-      </View>
-    );
+    return <AppLoader progress={bootProgress} />;
   }
 
   return (
@@ -55,7 +35,7 @@ function RootNavigator() {
     >
       {isAuthenticated ? (
         <>
-          <RootStack.Screen name="Main" component={MainTabs} />
+          <RootStack.Screen name="Main" component={MainTabNavigator} />
           <RootStack.Screen name="PropertyDetail" component={PropertyDetailScreen} />
           <RootStack.Screen name="Pagos" component={PagosScreen} />
           <RootStack.Screen name="Progress" component={ProgressScreen} />
@@ -89,11 +69,5 @@ export default function App() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-  },
-  splash: {
-    flex: 1,
-    backgroundColor: COLORS.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
